@@ -1,0 +1,102 @@
+name: Release Checklist
+description: Coordinated release workflow with pre-release, release, and post-release verification.
+title: "release: v"
+labels:
+  - release
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Planned release version (e.g., v0.4.0)
+      placeholder: v0.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: target_date
+    attributes:
+      label: Target Release Date
+      description: Planned date/time for release execution.
+      placeholder: 2026-03-01 10:00 PT
+    validations:
+      required: true
+
+  - type: input
+    id: owner
+    attributes:
+      label: Release Owner
+      description: Primary person responsible for driving this release.
+      placeholder: @github-handle or name
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Release Scope
+      description: What changes/issues are included in this release?
+      placeholder: Linked PRs/issues, high-level themes, exclusions.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: "## Pre-release Checklist"
+
+  - type: checkboxes
+    id: pre_release
+    attributes:
+      label: Pre-release
+      options:
+        - label: All scoped PRs merged and linked in this issue.
+        - label: CI is green on main for relevant workflows.
+        - label: Required test suites completed (unit/integration/e2e as applicable).
+        - label: Documentation/user-facing changes reviewed and updated.
+        - label: Rollback plan documented and owner-aligned.
+        - label: Stakeholders notified of release window.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: "## Release Execution Checklist"
+
+  - type: checkboxes
+    id: release_execution
+    attributes:
+      label: Release
+      options:
+        - label: Create and push release tag.
+        - label: Publish release notes/changelog.
+        - label: Trigger/execute deployment per runbook.
+        - label: Confirm deployment completed successfully.
+        - label: Announce release in designated channels.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: "## Post-release Checklist"
+
+  - type: checkboxes
+    id: post_release
+    attributes:
+      label: Post-release
+      options:
+        - label: Validate production health checks/critical endpoints.
+        - label: Monitor errors/alerts for at least one observation window.
+        - label: Verify analytics/telemetry signal continuity.
+        - label: Capture follow-up issues for regressions or deferred work.
+        - label: Close this release checklist issue with final notes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: release_notes
+    attributes:
+      label: Final Release Notes / Audit Record
+      description: Fill in actual tag, links, rollout evidence, and post-release summary.
+      placeholder: Tag, deployment refs, dashboards checked, incidents, follow-ups.
+    validations:
+      required: false

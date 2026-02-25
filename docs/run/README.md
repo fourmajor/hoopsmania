@@ -8,7 +8,7 @@
 
 This is the fastest **copy/paste-friendly** path to get Hoops Mania running locally.
 
-Current priority: **backend development flow**.  
+Current priority: **backend development flow**.
 As frontend/services are added, extend this same runbook pattern.
 
 For deeper details, see:
@@ -17,6 +17,7 @@ For deeper details, see:
 - Issue dispatcher guide: [`docs/run/issue-dispatcher-local.md`](./issue-dispatcher-local.md)
 - Configuration guide: [`docs/run/configuration.md`](./configuration.md)
 - PR creation guide (multiline body standard): [`docs/run/pr-creation.md`](./pr-creation.md)
+- Branch protection runbook (`main`): [`docs/run/branch-protection-main.md`](./branch-protection-main.md)
 
 ---
 

@@ -77,13 +77,40 @@ automation/github/create_issue_with_body_file.sh \
   --repo "fourmajor/hoopsmania"
 ```
 
-## 8) Delete Branches After PR Merge
+## 8) Protect `main` Branch
+
+- `main` should require CI status checks, at least one approving review, and stale-approval dismissal.
+- Configure and verify with: `docs/run/branch-protection-main.md`.
+- If settings drift, re-apply using the documented API command and verification script.
+
+## 9) Delete Branches After PR Merge
 
 - Delete the working branch immediately after the PR is merged.
 - Prefer deleting via GitHub's **Delete branch** action on the merged PR.
 - If a branch must be kept temporarily, document the reason in the PR conversation.
 
-## 10) Standard Label Taxonomy + Auto-Labeling
+## 10) CODEOWNERS and Code-Owner Review Gate
+
+- Maintain `.github/CODEOWNERS` for major project paths.
+- Keep ownership mappings broad and practical by default.
+- PRs touching owned paths must receive an approval from a mapped owner (enforced by CI gate).
+- Update `docs/contributing/codeowners.md` when ownership policy/process changes.
+
+## 11) Solo Maintainer Branch Protection Policy
+
+For `main` in solo-maintainer mode:
+
+- Set branch protection `required_approving_review_count=0`.
+- Keep strict required status checks enabled.
+- Keep stale review dismissal enabled.
+- Keep required conversation resolution enabled.
+- Continue process-level review gates:
+  - docdrip reviews non-doc-only PRs for documentation impact.
+  - locktrace reviews non-security-only PRs for security impact.
+
+Rationale: the author cannot self-approve; approvals >0 can deadlock merges. Safety remains enforced through CI + review gates + conversation resolution.
+
+## 12) Standard Label Taxonomy + Auto-Labeling
 
 - Use canonical labels from `docs/contributing/labels.md`.
 - Keep auto-label path rules in `.github/labeler.yml`.
@@ -101,6 +128,7 @@ Before requesting review:
 - [ ] Multiline PR body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Multiline issue body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Any new standing instruction has been documented.
+- [ ] `main` branch protection settings match the branch-protection runbook.
 
 After merge:
 

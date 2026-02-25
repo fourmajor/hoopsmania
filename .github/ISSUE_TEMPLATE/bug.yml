@@ -1,0 +1,52 @@
+name: Bug Report
+description: Report a defect impacting behavior, reliability, or correctness.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What were you trying to do when this bug occurred?
+      placeholder: Feature area, workflow, and expected outcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who/what is affected and how severe is it?
+      placeholder: User impact, frequency, and business/engineering risk.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Provide deterministic reproduction steps.
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs Actual Behavior
+      placeholder: Expected behavior and what actually happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of Done
+      description: What must be true for this issue to be considered complete?
+      placeholder: Tests, docs, acceptance checks, rollout notes.
+    validations:
+      required: true

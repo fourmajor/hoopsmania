@@ -1,0 +1,13 @@
+# HoopsMania CODEOWNERS
+# Keep this file simple and low-friction: broad ownership by area.
+# Format: <path-pattern> <owner(s)>
+
+# Default owner (fallback)
+* @fourmajor
+
+# Area owners
+/web/ @fourmajor
+/backend/ @fourmajor
+/automation/ @fourmajor
+/docs/ @fourmajor
+/.github/ @fourmajor
