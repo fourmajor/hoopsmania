@@ -27,7 +27,7 @@ updates:
       timezone: "America/Los_Angeles"
     labels:
       - "dependencies"
-      - "javascript"
+      - "type:frontend"
     assignees:
       - "fourmajor"
     open-pull-requests-limit: 5
@@ -45,7 +45,7 @@ updates:
       timezone: "America/Los_Angeles"
     labels:
       - "dependencies"
-      - "python"
+      - "type:backend"
     assignees:
       - "fourmajor"
     open-pull-requests-limit: 5
