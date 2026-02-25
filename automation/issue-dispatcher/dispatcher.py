@@ -430,36 +430,43 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
     followups = _load_followups()
     existing = followups["tasks"].get(key)
 
+    routed_role = _route_pr_feedback(
+        feedback["repo"],
+        {
+            "number": feedback["pr_number"],
+            "title": feedback["pr_title"],
+            "body": feedback["body"],
+            "labels": feedback.get("labels", []),
+        },
+        routing,
+    )
+
     if existing:
         task = existing
         is_new = False
     else:
-        role = _route_pr_feedback(
-            feedback["repo"],
-            {
-                "number": feedback["pr_number"],
-                "title": feedback["pr_title"],
-                "body": feedback["body"],
-                "labels": feedback.get("labels", []),
-            },
-            routing,
-        )
         task = {
             "id": key,
-            "status": "open",
-            "repo": feedback["repo"],
-            "pr_number": feedback["pr_number"],
-            "pr_title": feedback["pr_title"],
-            "pr_url": feedback["pr_url"],
-            "role": role,
-            "required_action_checklist": REQUIRED_ACTION_CHECKLIST,
-            "comment_permalinks": [],
-            "events": [],
             "created_at": _now_iso(),
-            "updated_at": _now_iso(),
-            "closed_at": None,
         }
         is_new = True
+
+    # Backfill/migrate legacy task records so older schema entries don't crash updates.
+    task.setdefault("id", key)
+    task.setdefault("repo", feedback["repo"])
+    task.setdefault("pr_number", feedback["pr_number"])
+    task.setdefault("pr_title", feedback["pr_title"])
+    task.setdefault("pr_url", feedback["pr_url"])
+    task.setdefault("required_action_checklist", REQUIRED_ACTION_CHECKLIST)
+    if not isinstance(task.get("comment_permalinks"), list):
+        task["comment_permalinks"] = []
+    if not isinstance(task.get("events"), list):
+        task["events"] = []
+
+    # Always keep routing fresh + reopen on new feedback.
+    task["role"] = _normalize_role(routed_role, routing, pr=True)
+    task["status"] = "open"
+    task["closed_at"] = None
 
     permalink = feedback.get("permalink")
     if permalink and permalink not in task["comment_permalinks"]:
