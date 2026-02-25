@@ -3,14 +3,27 @@ set -euo pipefail
 
 ROLE="${1:-}"
 REPO="${2:-}"
-TASK_KIND="${3:-issue}"
-TASK_NUMBER="${4:-}"
-TASK_TITLE="${5:-}"
-TASK_URL="${6:-}"
-CONTEXT_JSON="${7:-{}}"
+
+# Positional compatibility:
+# New:    <role> <repo> <task_kind> <task_number> <task_title> <task_url> <context_json>
+# Legacy: <role> <repo> <issue_number> <issue_title> <issue_url> [context_json]
+if [[ "${3:-}" =~ ^[0-9]+$ ]]; then
+  TASK_KIND="issue"
+  TASK_NUMBER="${3:-}"
+  TASK_TITLE="${4:-}"
+  TASK_URL="${5:-}"
+  CONTEXT_JSON="${6:-{}}"
+else
+  TASK_KIND="${3:-issue}"
+  TASK_NUMBER="${4:-}"
+  TASK_TITLE="${5:-}"
+  TASK_URL="${6:-}"
+  CONTEXT_JSON="${7:-{}}"
+fi
 
 if [[ -z "$ROLE" || -z "$REPO" || -z "$TASK_NUMBER" ]]; then
   echo "usage: dispatch_bridge.sh <role> <repo> <task_kind> <task_number> <task_title> <task_url> <context_json>" >&2
+  echo "   or: dispatch_bridge.sh <role> <repo> <issue_number> <issue_title> <issue_url> [context_json]" >&2
   exit 2
 fi
 

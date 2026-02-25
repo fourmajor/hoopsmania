@@ -17,6 +17,10 @@ Edit `.env`:
 - required: `GITHUB_WEBHOOK_SECRET`
 - recommended: `GITHUB_TOKEN` (for PR file heuristics + closure gate + comments)
 - optional role mappings: `OPENCLAW_SESSION_<ROLE_KEY>` / `OPENCLAW_AGENT_<ROLE_KEY>`
+- auto-exec controls:
+  - `AUTO_EXECUTE_NEW_ISSUES=1` (default)
+  - `AUTO_EXECUTE_ONLY_ON_OPENED=1` (default)
+  - `FORCE_TRIAGE_LABEL=dispatch:triage` (default)
 
 ## 2) Run as persistent service
 
@@ -52,6 +56,11 @@ Expected:
 - issue routing response with role + dispatch exit
 - PR feedback response with followup task payload
 - duplicate delivery returns `ignored: duplicate delivery`
+
+Issue auto-execution criteria (new issues):
+- confident route: exactly one non-default role matches routing rules -> auto-exec that employee
+- low confidence: no role match OR multi-role ambiguity -> fallback to `default_role` triage (`ctrl^core`)
+- override: if issue has label from `FORCE_TRIAGE_LABEL` (default `dispatch:triage`), force triage fallback
 
 ## 5) Check state + logs
 

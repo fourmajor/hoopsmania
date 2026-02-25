@@ -39,6 +39,10 @@ HOST = os.getenv("DISPATCHER_HOST", "127.0.0.1")
 PORT = int(os.getenv("DISPATCHER_PORT", "8787"))
 HOOK_TIMEOUT_SEC = int(os.getenv("DISPATCH_HOOK_TIMEOUT_SEC", "45"))
 
+AUTO_EXECUTE_NEW_ISSUES = os.getenv("AUTO_EXECUTE_NEW_ISSUES", "1").lower() not in {"0", "false", "no"}
+AUTO_EXECUTE_ONLY_ON_OPENED = os.getenv("AUTO_EXECUTE_ONLY_ON_OPENED", "1").lower() not in {"0", "false", "no"}
+FORCE_TRIAGE_LABEL = os.getenv("FORCE_TRIAGE_LABEL", "dispatch:triage").strip().lower()
+
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 GH_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GH_API = os.getenv("GITHUB_API_URL", "https://api.github.com")
@@ -54,6 +58,10 @@ SUPPORTED_HOOK_KEYS = {
     "task_title",
     "task_url",
     "context_json",
+    # legacy aliases still accepted for backward compatibility
+    "issue_number",
+    "issue_title",
+    "issue_url",
     "role_q",
     "repo_q",
     "task_kind_q",
@@ -61,6 +69,9 @@ SUPPORTED_HOOK_KEYS = {
     "task_title_q",
     "task_url_q",
     "context_json_q",
+    "issue_number_q",
+    "issue_title_q",
+    "issue_url_q",
 }
 HOOK_CMD = os.getenv(
     "DISPATCH_HOOK_CMD",
@@ -155,24 +166,51 @@ def _contains_any(haystack: str, needles: list[str]) -> bool:
     return any(n.lower() in h for n in needles)
 
 
-def _route_issue(issue: dict[str, Any], routing: dict[str, Any]) -> str:
+def _match_issue_roles(issue: dict[str, Any], routing: dict[str, Any]) -> list[str]:
     labels = {x["name"].lower() for x in issue.get("labels", []) if x.get("name")}
     title = issue.get("title", "")
     body = issue.get("body", "")
 
+    matched_roles: list[str] = []
     for rule in routing.get("rules", []):
+        role = rule.get("role")
+        if not role:
+            continue
+
         any_labels = [x.lower() for x in rule.get("any_labels", [])]
         title_contains = rule.get("title_contains", [])
         body_contains = rule.get("body_contains", [])
 
         if any_labels and labels.intersection(any_labels):
-            return rule["role"]
+            matched_roles.append(role)
+            continue
         if title_contains and _contains_any(title, title_contains):
-            return rule["role"]
+            matched_roles.append(role)
+            continue
         if body_contains and _contains_any(body, body_contains):
-            return rule["role"]
+            matched_roles.append(role)
+            continue
 
-    return routing.get("default_role", "ctrl^core")
+    return matched_roles
+
+
+def _route_issue(issue: dict[str, Any], routing: dict[str, Any]) -> tuple[str, bool, str]:
+    """Return (role, should_auto_execute, routing_reason)."""
+    default_role = routing.get("default_role", "ctrl^core")
+    matched_roles = _match_issue_roles(issue, routing)
+    unique_roles = sorted(set(matched_roles))
+
+    if not unique_roles:
+        return default_role, False, "no routing rule matched"
+
+    if len(unique_roles) > 1:
+        return default_role, False, f"ambiguous role matches: {', '.join(unique_roles)}"
+
+    chosen_role = unique_roles[0]
+    if chosen_role == default_role:
+        return default_role, False, "matched default triage role"
+
+    return chosen_role, True, "single confident role match"
 
 
 def _gh_api_json(path: str) -> dict[str, Any] | list[Any] | None:
@@ -254,12 +292,20 @@ def _fingerprint(payload: dict[str, Any], evt: str) -> str:
 
 
 def _render_hook(task: dict[str, str]) -> str:
-    quoted = {f"{k}_q": shlex.quote(v) for k, v in task.items()}
+    # Backward-compatible aliases for older hook templates.
+    aliases = {
+        "issue_number": task.get("task_number", ""),
+        "issue_title": task.get("task_title", ""),
+        "issue_url": task.get("task_url", ""),
+    }
+    merged = {**task, **aliases}
+
+    quoted = {f"{k}_q": shlex.quote(v) for k, v in merged.items()}
     fields = {fname for _, fname, _, _ in string.Formatter().parse(HOOK_CMD) if fname}
     unknown = sorted(fields.difference(SUPPORTED_HOOK_KEYS))
     if unknown:
         raise ValueError(f"DISPATCH_HOOK_CMD has unsupported placeholders: {', '.join(unknown)}")
-    return HOOK_CMD.format(**task, **quoted)
+    return HOOK_CMD.format(**merged, **quoted)
 
 
 def _comment_issue(repo: str, issue_number: int, text: str) -> None:
@@ -582,39 +628,76 @@ class Handler(BaseHTTPRequestHandler):
             if not issue or not repo:
                 self._respond(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing issue/repo"})
                 return
-            role = _route_issue(issue, routing)
-            task = {
-                "role": role,
-                "repo": repo,
-                "task_kind": "issue",
-                "task_number": str(issue["number"]),
-                "task_title": issue["title"].replace("\n", " "),
-                "task_url": issue["html_url"],
-                "context_json": json.dumps({"task_id": f"{repo}#{issue['number']}"}, separators=(",", ":")),
-            }
-            cmd = _render_hook(task)
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                text=True,
-                capture_output=True,
-                timeout=HOOK_TIMEOUT_SEC,
-            )
-            marker = _extract_dispatch_marker(result.stdout)
 
-            marker_line = "- downstream: `missing-marker`"
-            if marker:
+            role, confident, route_reason = _route_issue(issue, routing)
+            labels = {x.get("name", "").lower() for x in issue.get("labels", []) if x.get("name")}
+            if FORCE_TRIAGE_LABEL and FORCE_TRIAGE_LABEL in labels:
+                role = routing.get("default_role", "ctrl^core")
+                confident = False
+                route_reason = f"forced triage via label `{FORCE_TRIAGE_LABEL}`"
+
+            should_auto_execute = confident
+            if AUTO_EXECUTE_ONLY_ON_OPENED and action != "opened":
+                should_auto_execute = False
+                if route_reason == "single confident role match":
+                    route_reason = "confident match but auto-exec restricted to action=opened"
+            if not AUTO_EXECUTE_NEW_ISSUES:
+                should_auto_execute = False
+                route_reason = "auto-execution disabled by AUTO_EXECUTE_NEW_ISSUES"
+
+            effective_role = role if should_auto_execute else routing.get("default_role", "ctrl^core")
+            marker = None
+            result = None
+            cmd = ""
+
+            if action == "opened" or should_auto_execute:
+                task = {
+                    "role": effective_role,
+                    "repo": repo,
+                    "task_kind": "issue",
+                    "task_number": str(issue["number"]),
+                    "task_title": issue["title"].replace("\n", " "),
+                    "task_url": issue["html_url"],
+                    "context_json": json.dumps(
+                        {
+                            "task_id": f"{repo}#{issue['number']}",
+                            "route_reason": route_reason,
+                            "route_confident": confident,
+                            "auto_executed": should_auto_execute,
+                        },
+                        separators=(",", ":"),
+                    ),
+                }
+                cmd = _render_hook(task)
+                result = subprocess.run(
+                    cmd,
+                    shell=True,
+                    text=True,
+                    capture_output=True,
+                    timeout=HOOK_TIMEOUT_SEC,
+                )
+                marker = _extract_dispatch_marker(result.stdout)
+
+            marker_line = "- downstream: `not-triggered`"
+            if result and marker:
                 marker_line = (
                     "- downstream: "
                     f"`{marker.get('status', 'unknown')}` "
                     f"run=`{marker.get('run_id', '')}` "
                     f"target=`{marker.get('target_kind', '')}:{marker.get('target', '')}`"
                 )
+            elif result:
+                marker_line = "- downstream: `missing-marker`"
 
+            status_word = "start" if action == "opened" else ("update" if action in {"edited", "labeled", "reopened"} else "done")
+            dispatch_exit = result.returncode if result else "skipped"
             summary = (
-                f"🤖 Issue router assigned this to **{role}**.\n"
+                f"🤖 Issue router {status_word}.\n"
+                f"- AI Employee: **{effective_role}**\n"
                 f"- action: `{action}`\n"
-                f"- dispatcher exit: `{result.returncode}`\n"
+                f"- routing: `{route_reason}`\n"
+                f"- auto-executed: `{str(should_auto_execute).lower()}`\n"
+                f"- dispatcher exit: `{dispatch_exit}`\n"
                 f"{marker_line}\n"
             )
             _comment_issue(repo, issue["number"], summary)
@@ -623,19 +706,20 @@ class Handler(BaseHTTPRequestHandler):
                 state["deliveries"][delivery] = True
             state["fingerprints"][fp] = True
             _save_state(state)
-            self._respond(
-                HTTPStatus.OK,
-                {
-                    "ok": True,
-                    "repo": repo,
-                    "issue": issue["number"],
-                    "role": role,
-                    "command": cmd,
-                    "exit": result.returncode,
-                    "stdout": result.stdout[-1000:],
-                    "stderr": result.stderr[-1000:],
-                },
-            )
+
+            payload_out = {
+                "ok": True,
+                "repo": repo,
+                "issue": issue["number"],
+                "role": effective_role,
+                "routing_reason": route_reason,
+                "auto_executed": should_auto_execute,
+                "command": cmd,
+                "exit": result.returncode if result else None,
+                "stdout": (result.stdout[-1000:] if result else ""),
+                "stderr": (result.stderr[-1000:] if result else ""),
+            }
+            self._respond(HTTPStatus.OK, payload_out)
             return
 
         # PR feedback flow
@@ -648,9 +732,10 @@ class Handler(BaseHTTPRequestHandler):
         rc, out, err, marker = _dispatch_task(task)
         closed, close_reason = _attempt_close_followup(task)
 
+        progress = "done" if closed else ("start" if is_new else "update")
         record_message = (
-            f"🤖 Review followup {'created' if is_new else 'updated'}: `{task['id']}`\n"
-            f"- routed-to: **{task['role']}**\n"
+            f"🤖 Review followup {progress}: `{task['id']}`\n"
+            f"- AI Employee: **{task['role']}**\n"
             f"- comment permalinks tracked: `{len(task.get('comment_permalinks', []))}`\n"
             "- required action checklist:\n"
             "  - [ ] post acknowledgement in PR thread\n"
