@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Hoops Mania Contribution Policies
+    url: https://github.com/fourmajor/hoopsmania/blob/main/docs/contributing/policies.md
+    about: Review contribution and AI employee operating policies before filing.
