@@ -89,14 +89,14 @@ automation/github/create_issue_with_body_file.sh \
 - Prefer deleting via GitHub's **Delete branch** action on the merged PR.
 - If a branch must be kept temporarily, document the reason in the PR conversation.
 
-## 9) CODEOWNERS and Code-Owner Review Gate
+## 10) CODEOWNERS and Code-Owner Review Gate
 
 - Maintain `.github/CODEOWNERS` for major project paths.
 - Keep ownership mappings broad and practical by default.
 - PRs touching owned paths must receive an approval from a mapped owner (enforced by CI gate).
 - Update `docs/contributing/codeowners.md` when ownership policy/process changes.
 
-## 10) Solo Maintainer Branch Protection Policy
+## 11) Solo Maintainer Branch Protection Policy
 
 For `main` in solo-maintainer mode:
 
@@ -109,6 +109,13 @@ For `main` in solo-maintainer mode:
   - locktrace reviews non-security-only PRs for security impact.
 
 Rationale: the author cannot self-approve; approvals >0 can deadlock merges. Safety remains enforced through CI + review gates + conversation resolution.
+
+## 12) Standard Label Taxonomy + Auto-Labeling
+
+- Use canonical labels from `docs/contributing/labels.md`.
+- Keep auto-label path rules in `.github/labeler.yml`.
+- PR auto-label workflow is `.github/workflows/pr-auto-label.yml`.
+- Maintainers may always override labels manually.
 
 ## Quick Checklist
 

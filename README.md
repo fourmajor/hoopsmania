@@ -32,6 +32,7 @@ Project contribution rules and standing-instruction policy:
 
 - `docs/contributing/policies.md`
 - `docs/contributing/employees.md` (human-readable employee guide)
+- `docs/contributing/labels.md` (label taxonomy + automation)
 - `docs/contributing/pre-commit.md` (hook setup and maintenance)
 - `docs/contributing/codeowners.md` (ownership + review guardrails)
 
