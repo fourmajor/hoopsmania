@@ -1,5 +1,11 @@
 # Run Locally (Quickstart)
 
+```text
+┌───────────────────────────────┐
+│  TIP-OFF: LOCAL DEV RUNBOOK   │
+└───────────────────────────────┘
+```
+
 This is the fastest **copy/paste-friendly** path to get Hoops Mania running locally.
 
 Current priority: **backend development flow**.  
