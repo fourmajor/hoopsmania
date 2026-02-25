@@ -23,7 +23,7 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-      time: "09:15"
+      time: "09:16"
       timezone: "America/Los_Angeles"
     labels:
       - "dependencies"
