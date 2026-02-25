@@ -33,4 +33,5 @@ Project contribution rules and standing-instruction policy:
 - `docs/contributing/policies.md`
 
 PR reminder: include `AI Employee: <name>` near the top of every PR description.
+Issue-body reminder: for multiline issue descriptions, use `gh issue create --body-file` (or `automation/github/create_issue_with_body_file.sh`) to avoid literal `\\n` rendering.
 Issue-comment reminder: every agent-posted GitHub issue comment must include `AI Employee: <name>`. 

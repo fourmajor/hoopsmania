@@ -58,7 +58,23 @@ When fourmajor gives a standing instruction (phrases like "in the future", "alwa
 - Avoid escaped newline strings like `--body "line1\\nline2"` for multiline content.
 - Canonical helper: `automation/github/create_pr_with_body_file.sh`
 
-## 7) Delete Branches After PR Merge
+## 7) Issue Body Formatting Standard (No Literal `\n`)
+
+- For multiline GitHub issue descriptions, use `gh issue create --body-file <file>` (preferred) or a heredoc-written file.
+- Avoid escaped newline strings like `--body "line1\\nline2"` for multiline issue content.
+- Canonical helper: `automation/github/create_issue_with_body_file.sh`
+- Issue body examples should include employee attribution near the top or in an attribution section: `AI Employee: <name>`.
+
+Example issue creation pattern:
+
+```bash
+automation/github/create_issue_with_body_file.sh \
+  --title "devops: improve dispatcher retries" \
+  --employee "pipewire" \
+  --repo "fourmajor/hoopsmania"
+```
+
+## 8) Delete Branches After PR Merge
 
 - Delete the working branch immediately after the PR is merged.
 - Prefer deleting via GitHub's **Delete branch** action on the merged PR.
@@ -73,6 +89,7 @@ Before requesting review:
 - [ ] PR links the issue (`Closes #...` / `Refs #...`).
 - [ ] Agent-posted issue comments include `AI Employee: <name>`.
 - [ ] Multiline PR body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
+- [ ] Multiline issue body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Any new standing instruction has been documented.
 
 After merge:
