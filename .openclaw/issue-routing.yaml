@@ -1,28 +1,56 @@
-default_role: cto-triage
+default_role: ctrl^core
+default_pr_role: ctrl^core
 
 rules:
   - name: docs-label
     any_labels: [documentation, docs]
-    role: tech-writer
+    role: docdrip
   - name: backend-label
     any_labels: [backend, api]
-    role: backend-dev
+    role: Ghost|line
   - name: frontend-label
     any_labels: [frontend, web, ui]
-    role: frontend-dev
+    role: neonflux
   - name: devops-label
     any_labels: [devops, infra, ci]
-    role: devops
+    role: pipewire
 
   - name: docs-title
     title_contains: ["docs", "readme", "documentation"]
-    role: tech-writer
+    role: docdrip
   - name: backend-title
     title_contains: ["backend", "api", "endpoint", "fastapi"]
-    role: backend-dev
+    role: Ghost|line
   - name: frontend-title
     title_contains: ["frontend", "ui", "next.js", "nextjs"]
-    role: frontend-dev
+    role: neonflux
   - name: devops-title
     title_contains: ["ci", "cd", "deploy", "docker", "infra"]
-    role: devops
+    role: pipewire
+
+pr_rules:
+  - name: backend-files
+    any_paths: ["backend/", "api/"]
+    role: Ghost|line
+  - name: frontend-files
+    any_paths: ["web/", "frontend/", "ui/"]
+    role: neonflux
+  - name: devops-files
+    any_paths: [".github/workflows/", "automation/", "infra/", "docker"]
+    role: pipewire
+  - name: docs-files
+    any_paths: ["docs/", "README.md", "EMPLOYEES.md"]
+    role: docdrip
+
+  - name: backend-label
+    any_labels: [backend, api]
+    role: Ghost|line
+  - name: frontend-label
+    any_labels: [frontend, ui, web]
+    role: neonflux
+  - name: devops-label
+    any_labels: [devops, infra, ci]
+    role: pipewire
+  - name: docs-label
+    any_labels: [documentation, docs]
+    role: docdrip

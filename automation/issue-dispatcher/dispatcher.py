@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""GitHub Issue -> role router (webhook-driven bootstrap).
+"""GitHub webhook -> role router + review followup tracker (bootstrap).
 
-Receives GitHub issue webhooks, classifies each issue using
-.openclaw/issue-routing.yaml, and emits a dispatch event to a configurable
-command hook.
+Supported flows:
+- issues: route to role and hand off to OpenClaw bridge
+- PR feedback events: create/update review-followup task records, route by PR heuristics,
+  post followup linkage comments, and enforce closure gate
 """
 
 from __future__ import annotations
@@ -16,11 +17,12 @@ import os
 import shlex
 import string
 import subprocess
+from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib import request
+from urllib import error, request
 
 import yaml
 
@@ -28,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ROUTING_FILE = Path(os.getenv("ROUTING_FILE", ROOT / ".openclaw" / "issue-routing.yaml"))
 STATE_DIR = Path(os.getenv("STATE_DIR", ROOT / ".openclaw" / "state"))
 STATE_FILE = STATE_DIR / "processed_deliveries.json"
+FOLLOWUP_FILE = STATE_DIR / "review_followups.json"
 
 LOG_DIR = Path(os.getenv("DISPATCHER_LOG_DIR", STATE_DIR))
 LOG_FILE = Path(os.getenv("DISPATCHER_LOG_FILE", LOG_DIR / "issue-dispatcher.log"))
@@ -41,31 +44,45 @@ GH_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GH_API = os.getenv("GITHUB_API_URL", "https://api.github.com")
 
 # Hook command template placeholders:
-# {role} {repo} {issue_number} {issue_title} {issue_url}
+# {role} {repo} {task_kind} {task_number} {task_title} {task_url} {context_json}
 # plus shell-escaped variants: *_q
 SUPPORTED_HOOK_KEYS = {
     "role",
     "repo",
-    "issue_number",
-    "issue_title",
-    "issue_url",
+    "task_kind",
+    "task_number",
+    "task_title",
+    "task_url",
+    "context_json",
     "role_q",
     "repo_q",
-    "issue_number_q",
-    "issue_title_q",
-    "issue_url_q",
+    "task_kind_q",
+    "task_number_q",
+    "task_title_q",
+    "task_url_q",
+    "context_json_q",
 }
 HOOK_CMD = os.getenv(
     "DISPATCH_HOOK_CMD",
     str((Path(__file__).resolve().parent / "dispatch_bridge.sh").resolve())
-    + " {role_q} {repo_q} {issue_number} {issue_title_q} {issue_url_q}",
+    + " {role_q} {repo_q} {task_kind_q} {task_number_q} {task_title_q} {task_url_q} {context_json_q}",
 )
 
-EVENTS_ALLOWED = {"issues"}
-ACTIONS_ALLOWED = {"opened", "edited", "labeled", "reopened"}
+EVENTS_ALLOWED = {"issues", "pull_request_review", "pull_request_review_comment", "issue_comment"}
+ISSUE_ACTIONS_ALLOWED = {"opened", "edited", "labeled", "reopened"}
+FEEDBACK_ACTIONS_ALLOWED = {"created", "edited", "submitted"}
 
+REQUIRED_ACTION_CHECKLIST = [
+    "Post acknowledgement in the PR thread.",
+    "Push fix commit(s) that address each feedback item.",
+    "Reply in-thread with addressed commit hash(es).",
+]
 
 logger = logging.getLogger("issue-dispatcher")
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _setup_logging() -> None:
@@ -85,7 +102,6 @@ def _load_state() -> dict[str, Any]:
         return {"deliveries": {}, "fingerprints": {}}
     try:
         raw = json.loads(STATE_FILE.read_text())
-        # Backward-compat: prior format was {delivery_id: true}
         if "deliveries" in raw or "fingerprints" in raw:
             return {
                 "deliveries": raw.get("deliveries", {}),
@@ -99,6 +115,22 @@ def _load_state() -> dict[str, Any]:
 def _save_state(state: dict[str, Any]) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True))
+
+
+def _load_followups() -> dict[str, Any]:
+    if not FOLLOWUP_FILE.exists():
+        return {"tasks": {}}
+    try:
+        raw = json.loads(FOLLOWUP_FILE.read_text())
+        tasks = raw.get("tasks", {}) if isinstance(raw, dict) else {}
+        return {"tasks": tasks}
+    except Exception:
+        return {"tasks": {}}
+
+
+def _save_followups(followups: dict[str, Any]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    FOLLOWUP_FILE.write_text(json.dumps(followups, indent=2, sort_keys=True))
 
 
 def _verify_signature(body: bytes, signature_header: str) -> bool:
@@ -140,37 +172,94 @@ def _route_issue(issue: dict[str, Any], routing: dict[str, Any]) -> str:
         if body_contains and _contains_any(body, body_contains):
             return rule["role"]
 
-    return routing.get("default_role", "cto-triage")
+    return routing.get("default_role", "ctrl^core")
 
 
-def _fingerprint(payload: dict[str, Any]) -> str:
-    issue = payload.get("issue", {})
+def _gh_api_json(path: str) -> dict[str, Any] | list[Any] | None:
+    if not GH_TOKEN:
+        return None
+    req = request.Request(f"{GH_API}{path}", method="GET")
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("Authorization", f"Bearer {GH_TOKEN}")
+    try:
+        with request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def _gh_graphql(query: str, variables: dict[str, Any]) -> dict[str, Any] | None:
+    if not GH_TOKEN:
+        return None
+    req = request.Request(f"{GH_API}/graphql", method="POST")
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("Authorization", f"Bearer {GH_TOKEN}")
+    req.add_header("Content-Type", "application/json")
+    body = json.dumps({"query": query, "variables": variables}).encode("utf-8")
+    try:
+        with request.urlopen(req, data=body, timeout=20) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            return payload.get("data")
+    except Exception:
+        return None
+
+
+def _route_pr_feedback(repo: str, pr: dict[str, Any], routing: dict[str, Any]) -> str:
+    labels = {x.get("name", "").lower() for x in pr.get("labels", []) if x.get("name")}
+    title = pr.get("title", "")
+    body = pr.get("body", "") or ""
+
+    file_paths: list[str] = []
+    files_json = _gh_api_json(f"/repos/{repo}/pulls/{pr.get('number')}/files")
+    if isinstance(files_json, list):
+        file_paths = [x.get("filename", "") for x in files_json if x.get("filename")]
+
+    for rule in routing.get("pr_rules", []):
+        any_labels = [x.lower() for x in rule.get("any_labels", [])]
+        any_paths = [x.lower() for x in rule.get("any_paths", [])]
+        title_contains = [x.lower() for x in rule.get("title_contains", [])]
+        body_contains = [x.lower() for x in rule.get("body_contains", [])]
+
+        if any_labels and labels.intersection(any_labels):
+            return rule["role"]
+        if any_paths and any(any(p in fp.lower() for p in any_paths) for fp in file_paths):
+            return rule["role"]
+        if title_contains and _contains_any(title, title_contains):
+            return rule["role"]
+        if body_contains and _contains_any(body, body_contains):
+            return rule["role"]
+
+    return routing.get("default_pr_role", "ctrl^core")
+
+
+def _fingerprint(payload: dict[str, Any], evt: str) -> str:
     repo = payload.get("repository", {}).get("full_name", "")
     action = payload.get("action", "")
-    updated_at = issue.get("updated_at", "")
-    raw = f"{repo}:{issue.get('number')}:{action}:{updated_at}"
+    if evt == "issues":
+        issue = payload.get("issue", {})
+        updated_at = issue.get("updated_at", "")
+        raw = f"{evt}:{repo}:{issue.get('number')}:{action}:{updated_at}"
+    else:
+        pr = payload.get("pull_request", {}) or payload.get("issue", {})
+        pr_number = pr.get("number", "")
+        updated_at = (
+            payload.get("review", {}).get("submitted_at")
+            or payload.get("comment", {}).get("updated_at")
+            or payload.get("comment", {}).get("created_at")
+            or pr.get("updated_at", "")
+        )
+        permalink = payload.get("review", {}).get("html_url") or payload.get("comment", {}).get("html_url", "")
+        raw = f"{evt}:{repo}:{pr_number}:{action}:{updated_at}:{permalink}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _render_hook(role: str, payload: dict[str, Any]) -> str:
-    issue = payload["issue"]
-    repo = payload["repository"]["full_name"]
-
-    values = {
-        "role": role,
-        "repo": repo,
-        "issue_number": str(issue["number"]),
-        "issue_title": issue["title"].replace("\n", " "),
-        "issue_url": issue["html_url"],
-    }
-    quoted = {f"{k}_q": shlex.quote(v) for k, v in values.items()}
-
+def _render_hook(task: dict[str, str]) -> str:
+    quoted = {f"{k}_q": shlex.quote(v) for k, v in task.items()}
     fields = {fname for _, fname, _, _ in string.Formatter().parse(HOOK_CMD) if fname}
     unknown = sorted(fields.difference(SUPPORTED_HOOK_KEYS))
     if unknown:
         raise ValueError(f"DISPATCH_HOOK_CMD has unsupported placeholders: {', '.join(unknown)}")
-
-    return HOOK_CMD.format(**values, **quoted)
+    return HOOK_CMD.format(**task, **quoted)
 
 
 def _comment_issue(repo: str, issue_number: int, text: str) -> None:
@@ -182,8 +271,11 @@ def _comment_issue(repo: str, issue_number: int, text: str) -> None:
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("Authorization", f"Bearer {GH_TOKEN}")
     req.add_header("Content-Type", "application/json")
-    with request.urlopen(req, timeout=10):
-        pass
+    try:
+        with request.urlopen(req, timeout=15):
+            pass
+    except Exception as exc:
+        logger.warning("failed to post comment repo=%s issue=%s err=%s", repo, issue_number, exc)
 
 
 def _extract_dispatch_marker(stdout: str) -> dict[str, Any] | None:
@@ -195,6 +287,231 @@ def _extract_dispatch_marker(stdout: str) -> dict[str, Any] | None:
             except json.JSONDecodeError:
                 return None
     return None
+
+
+def _is_pr_issue_comment(payload: dict[str, Any]) -> bool:
+    issue = payload.get("issue", {})
+    return bool(issue.get("pull_request"))
+
+
+def _extract_pr_feedback(payload: dict[str, Any], evt: str) -> dict[str, Any] | None:
+    repo = payload.get("repository", {}).get("full_name")
+    if not repo:
+        return None
+
+    if evt == "pull_request_review":
+        pr = payload.get("pull_request", {})
+        review = payload.get("review", {})
+        if not pr.get("number"):
+            return None
+        permalink = review.get("html_url")
+        body = review.get("body", "")
+        source = "review"
+    elif evt == "pull_request_review_comment":
+        pr = payload.get("pull_request", {})
+        comment = payload.get("comment", {})
+        if not pr.get("number"):
+            return None
+        permalink = comment.get("html_url")
+        body = comment.get("body", "")
+        source = "review_comment"
+    elif evt == "issue_comment":
+        if not _is_pr_issue_comment(payload):
+            return None
+        pr = payload.get("issue", {})
+        comment = payload.get("comment", {})
+        permalink = comment.get("html_url")
+        body = comment.get("body", "")
+        source = "pr_issue_comment"
+    else:
+        return None
+
+    return {
+        "repo": repo,
+        "pr_number": int(pr.get("number")),
+        "pr_title": pr.get("title", f"PR #{pr.get('number')}") or f"PR #{pr.get('number')}",
+        "pr_url": pr.get("html_url", ""),
+        "labels": pr.get("labels", []),
+        "body": pr.get("body", "") or "",
+        "permalink": permalink,
+        "feedback_body": body,
+        "source": source,
+        "sender": payload.get("sender", {}).get("login", "unknown"),
+    }
+
+
+def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    feedback = _extract_pr_feedback(payload, evt)
+    if not feedback:
+        raise ValueError("payload is not PR feedback")
+
+    key = f"{feedback['repo']}#{feedback['pr_number']}"
+    followups = _load_followups()
+    existing = followups["tasks"].get(key)
+
+    if existing:
+        task = existing
+        is_new = False
+    else:
+        role = _route_pr_feedback(
+            feedback["repo"],
+            {
+                "number": feedback["pr_number"],
+                "title": feedback["pr_title"],
+                "body": feedback["body"],
+                "labels": feedback.get("labels", []),
+            },
+            routing,
+        )
+        task = {
+            "id": key,
+            "status": "open",
+            "repo": feedback["repo"],
+            "pr_number": feedback["pr_number"],
+            "pr_title": feedback["pr_title"],
+            "pr_url": feedback["pr_url"],
+            "role": role,
+            "required_action_checklist": REQUIRED_ACTION_CHECKLIST,
+            "comment_permalinks": [],
+            "events": [],
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+            "closed_at": None,
+        }
+        is_new = True
+
+    permalink = feedback.get("permalink")
+    if permalink and permalink not in task["comment_permalinks"]:
+        task["comment_permalinks"].append(permalink)
+
+    task["events"].append(
+        {
+            "event": evt,
+            "action": payload.get("action", ""),
+            "source": feedback.get("source", ""),
+            "sender": feedback.get("sender", ""),
+            "at": _now_iso(),
+        }
+    )
+    task["updated_at"] = _now_iso()
+
+    followups["tasks"][key] = task
+    _save_followups(followups)
+    return task, is_new
+
+
+def _all_threads_resolved(repo: str, pr_number: int) -> bool | None:
+    owner, name = repo.split("/", 1)
+    data = _gh_graphql(
+        """
+        query($owner:String!, $name:String!, $number:Int!) {
+          repository(owner:$owner, name:$name) {
+            pullRequest(number:$number) {
+              reviewThreads(first:100) {
+                nodes { isResolved }
+              }
+            }
+          }
+        }
+        """,
+        {"owner": owner, "name": name, "number": pr_number},
+    )
+    try:
+        threads = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    except Exception:
+        return None
+    return all(x.get("isResolved", False) for x in threads)
+
+
+def _checks_green(repo: str, pr_number: int) -> bool | None:
+    # REST endpoint aggregates check suites + statuses
+    data = _gh_api_json(f"/repos/{repo}/commits/HEAD/status")
+    # Above is not PR-specific if branch unknown; prefer GraphQL mergeable checks when token available.
+    owner, name = repo.split("/", 1)
+    gql = _gh_graphql(
+        """
+        query($owner:String!, $name:String!, $number:Int!) {
+          repository(owner:$owner, name:$name) {
+            pullRequest(number:$number) {
+              commits(last:1) {
+                nodes {
+                  commit {
+                    statusCheckRollup {
+                      state
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """,
+        {"owner": owner, "name": name, "number": pr_number},
+    )
+    try:
+        state = (
+            gql["repository"]["pullRequest"]["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["state"]
+        )
+        return state == "SUCCESS"
+    except Exception:
+        if isinstance(data, dict):
+            return data.get("state") == "success"
+        return None
+
+
+def _attempt_close_followup(task: dict[str, Any]) -> tuple[bool, str]:
+    threads_ok = _all_threads_resolved(task["repo"], int(task["pr_number"]))
+    checks_ok = _checks_green(task["repo"], int(task["pr_number"]))
+
+    if threads_ok is True and checks_ok is True:
+        followups = _load_followups()
+        key = task["id"]
+        current = followups["tasks"].get(key, task)
+        current["status"] = "closed"
+        current["closed_at"] = _now_iso()
+        current["updated_at"] = _now_iso()
+        followups["tasks"][key] = current
+        _save_followups(followups)
+        return True, "all review threads resolved and checks green"
+
+    reasons = []
+    if threads_ok is not True:
+        reasons.append("review threads still unresolved or unavailable")
+    if checks_ok is not True:
+        reasons.append("checks not green or unavailable")
+    return False, "; ".join(reasons)
+
+
+def _dispatch_task(task: dict[str, Any]) -> tuple[int, str, str, dict[str, Any] | None]:
+    context = {
+        "task_id": task["id"],
+        "repo": task["repo"],
+        "pr_number": task["pr_number"],
+        "pr_url": task["pr_url"],
+        "comment_permalinks": task.get("comment_permalinks", []),
+        "required_action_checklist": task.get("required_action_checklist", []),
+        "closure_gate": "Close only when all review threads are resolved/answered and checks are green.",
+    }
+    cmd = _render_hook(
+        {
+            "role": task["role"],
+            "repo": task["repo"],
+            "task_kind": "pr-followup",
+            "task_number": str(task["pr_number"]),
+            "task_title": f"PR followup: {task['pr_title']}",
+            "task_url": task.get("pr_url", ""),
+            "context_json": json.dumps(context, separators=(",", ":")),
+        }
+    )
+    result = subprocess.run(
+        cmd,
+        shell=True,
+        text=True,
+        capture_output=True,
+        timeout=HOOK_TIMEOUT_SEC,
+    )
+    marker = _extract_dispatch_marker(result.stdout)
+    return result.returncode, result.stdout, result.stderr, marker
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -235,8 +552,16 @@ class Handler(BaseHTTPRequestHandler):
 
         payload = json.loads(body.decode("utf-8"))
         action = payload.get("action")
-        if action not in ACTIONS_ALLOWED:
+
+        if evt == "issues" and action not in ISSUE_ACTIONS_ALLOWED:
             self._respond(HTTPStatus.OK, {"ok": True, "ignored": f"action {action}"})
+            return
+        if evt != "issues" and action not in FEEDBACK_ACTIONS_ALLOWED:
+            self._respond(HTTPStatus.OK, {"ok": True, "ignored": f"action {action}"})
+            return
+
+        if evt == "issue_comment" and not _is_pr_issue_comment(payload):
+            self._respond(HTTPStatus.OK, {"ok": True, "ignored": "issue_comment on non-PR issue"})
             return
 
         state = _load_state()
@@ -244,78 +569,115 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(HTTPStatus.OK, {"ok": True, "ignored": "duplicate delivery"})
             return
 
-        fp = _fingerprint(payload)
+        fp = _fingerprint(payload, evt)
         if state["fingerprints"].get(fp):
             self._respond(HTTPStatus.OK, {"ok": True, "ignored": "duplicate payload"})
             return
 
-        issue = payload.get("issue")
-        repo = payload.get("repository", {}).get("full_name")
-        if not issue or not repo:
-            self._respond(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing issue/repo"})
+        routing = _load_routing()
+
+        if evt == "issues":
+            issue = payload.get("issue")
+            repo = payload.get("repository", {}).get("full_name")
+            if not issue or not repo:
+                self._respond(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing issue/repo"})
+                return
+            role = _route_issue(issue, routing)
+            task = {
+                "role": role,
+                "repo": repo,
+                "task_kind": "issue",
+                "task_number": str(issue["number"]),
+                "task_title": issue["title"].replace("\n", " "),
+                "task_url": issue["html_url"],
+                "context_json": json.dumps({"task_id": f"{repo}#{issue['number']}"}, separators=(",", ":")),
+            }
+            cmd = _render_hook(task)
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                text=True,
+                capture_output=True,
+                timeout=HOOK_TIMEOUT_SEC,
+            )
+            marker = _extract_dispatch_marker(result.stdout)
+
+            marker_line = "- downstream: `missing-marker`"
+            if marker:
+                marker_line = (
+                    "- downstream: "
+                    f"`{marker.get('status', 'unknown')}` "
+                    f"run=`{marker.get('run_id', '')}` "
+                    f"target=`{marker.get('target_kind', '')}:{marker.get('target', '')}`"
+                )
+
+            summary = (
+                f"🤖 Issue router assigned this to **{role}**.\n"
+                f"- action: `{action}`\n"
+                f"- dispatcher exit: `{result.returncode}`\n"
+                f"{marker_line}\n"
+            )
+            _comment_issue(repo, issue["number"], summary)
+
+            if delivery:
+                state["deliveries"][delivery] = True
+            state["fingerprints"][fp] = True
+            _save_state(state)
+            self._respond(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "repo": repo,
+                    "issue": issue["number"],
+                    "role": role,
+                    "command": cmd,
+                    "exit": result.returncode,
+                    "stdout": result.stdout[-1000:],
+                    "stderr": result.stderr[-1000:],
+                },
+            )
             return
 
-        routing = _load_routing()
-        role = _route_issue(issue, routing)
+        # PR feedback flow
         try:
-            cmd = _render_hook(role, payload)
+            task, is_new = _create_or_update_followup(payload, evt, routing)
         except ValueError as exc:
-            logger.error("invalid dispatch hook template: %s", exc)
             self._respond(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return
 
-        logger.info("dispatch start repo=%s issue=%s role=%s", repo, issue["number"], role)
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            text=True,
-            capture_output=True,
-            timeout=HOOK_TIMEOUT_SEC,
-        )
+        rc, out, err, marker = _dispatch_task(task)
+        closed, close_reason = _attempt_close_followup(task)
 
-        marker = _extract_dispatch_marker(result.stdout)
-        marker_line = "- downstream: `missing-marker`"
-        if marker:
-            marker_line = (
-                "- downstream: "
-                f"`{marker.get('status', 'unknown')}` "
-                f"run=`{marker.get('run_id', '')}` "
-                f"target=`{marker.get('target_kind', '')}:{marker.get('target', '')}`"
-            )
-
-        summary = (
-            f"🤖 Issue router assigned this to **{role}**.\n"
-            f"- action: `{action}`\n"
-            f"- dispatcher exit: `{result.returncode}`\n"
-            f"{marker_line}\n"
+        record_message = (
+            f"🤖 Review followup {'created' if is_new else 'updated'}: `{task['id']}`\n"
+            f"- routed-to: **{task['role']}**\n"
+            f"- comment permalinks tracked: `{len(task.get('comment_permalinks', []))}`\n"
+            "- required action checklist:\n"
+            "  - [ ] post acknowledgement in PR thread\n"
+            "  - [ ] push fix commit(s)\n"
+            "  - [ ] reply with addressed commit hash(es)\n"
+            f"- closure gate: {'✅ closed' if closed else f'⏳ open ({close_reason})'}\n"
+            f"- dispatcher exit: `{rc}`\n"
         )
-        _comment_issue(repo, issue["number"], summary)
+        _comment_issue(task["repo"], int(task["pr_number"]), record_message)
 
         if delivery:
             state["deliveries"][delivery] = True
         state["fingerprints"][fp] = True
         _save_state(state)
 
-        logger.info(
-            "dispatch done repo=%s issue=%s role=%s exit=%s downstream=%s",
-            repo,
-            issue["number"],
-            role,
-            result.returncode,
-            json.dumps(marker, sort_keys=True) if marker else "missing",
-        )
-
         self._respond(
             HTTPStatus.OK,
             {
                 "ok": True,
-                "repo": repo,
-                "issue": issue["number"],
-                "role": role,
-                "command": cmd,
-                "exit": result.returncode,
-                "stdout": result.stdout[-1000:],
-                "stderr": result.stderr[-1000:],
+                "event": evt,
+                "action": action,
+                "followup": task,
+                "dispatch_exit": rc,
+                "dispatch_marker": marker,
+                "closure": {"closed": closed, "reason": close_reason},
+                "stdout": out[-600:],
+                "stderr": err[-600:],
             },
         )
 
@@ -325,6 +687,7 @@ def main() -> None:
     logger.info("Issue dispatcher listening on http://%s:%s/github/webhook", HOST, PORT)
     logger.info("Health endpoint: http://%s:%s/healthz", HOST, PORT)
     logger.info("Routing file: %s", ROUTING_FILE)
+    logger.info("Followup file: %s", FOLLOWUP_FILE)
     logger.info("Log file: %s", LOG_FILE)
     if not WEBHOOK_SECRET:
         logger.warning("GITHUB_WEBHOOK_SECRET is empty; signature checks will fail.")

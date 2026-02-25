@@ -3,12 +3,14 @@ set -euo pipefail
 
 ROLE="${1:-}"
 REPO="${2:-}"
-ISSUE_NUMBER="${3:-}"
-ISSUE_TITLE="${4:-}"
-ISSUE_URL="${5:-}"
+TASK_KIND="${3:-issue}"
+TASK_NUMBER="${4:-}"
+TASK_TITLE="${5:-}"
+TASK_URL="${6:-}"
+CONTEXT_JSON="${7:-{}}"
 
-if [[ -z "$ROLE" || -z "$REPO" || -z "$ISSUE_NUMBER" ]]; then
-  echo "usage: dispatch_bridge.sh <role> <repo> <issue_number> <issue_title> <issue_url>" >&2
+if [[ -z "$ROLE" || -z "$REPO" || -z "$TASK_NUMBER" ]]; then
+  echo "usage: dispatch_bridge.sh <role> <repo> <task_kind> <task_number> <task_title> <task_url> <context_json>" >&2
   exit 2
 fi
 
@@ -21,7 +23,6 @@ BRIDGE_LOG_FILE="${BRIDGE_LOG_FILE:-$STATE_DIR/dispatch-bridge.log}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-$HOME/.npm-global/bin/openclaw}"
 OPENCLAW_FALLBACK_AGENT="${OPENCLAW_FALLBACK_AGENT:-main}"
 
-# launchd often has a minimal PATH; ensure node/openclaw runtime paths are available.
 export PATH="${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}:/opt/homebrew/bin:/usr/local/bin:$HOME/.npm-global/bin"
 
 log() {
@@ -36,7 +37,7 @@ emit_marker() {
   local session_id="$5"
 
   local marker
-  marker=$(python3 - "$status" "$target_kind" "$target_value" "$run_id" "$session_id" "$ROLE" "$REPO" "$ISSUE_NUMBER" <<'PY'
+  marker=$(python3 - "$status" "$target_kind" "$target_value" "$run_id" "$session_id" "$ROLE" "$REPO" "$TASK_NUMBER" "$TASK_KIND" <<'PY'
 import json, sys
 
 payload = {
@@ -47,7 +48,8 @@ payload = {
     "session_id": sys.argv[5],
     "role": sys.argv[6],
     "repo": sys.argv[7],
-    "issue_number": sys.argv[8],
+    "task_number": sys.argv[8],
+    "task_kind": sys.argv[9],
 }
 print("OPENCLAW_DISPATCH_RESULT " + json.dumps(payload, separators=(",", ":")))
 PY
@@ -63,22 +65,50 @@ if [[ ! -x "$OPENCLAW_BIN" ]]; then
   exit 127
 fi
 
-role_key="$(echo "$ROLE" | tr '[:lower:]-' '[:upper:]_')"
+role_key="$(echo "$ROLE" | tr '[:lower:]-^' '[:upper:]__')"
 session_var="OPENCLAW_SESSION_${role_key}"
 agent_var="OPENCLAW_AGENT_${role_key}"
 session_id="${!session_var:-}"
 agent_id="${!agent_var:-}"
 
-message=$(cat <<EOF
-Hoops Mania issue dispatch handoff.
-Role: $ROLE
-Repo: $REPO
-Issue: #$ISSUE_NUMBER
-Title: $ISSUE_TITLE
-URL: $ISSUE_URL
+message=$(python3 - "$ROLE" "$REPO" "$TASK_KIND" "$TASK_NUMBER" "$TASK_TITLE" "$TASK_URL" "$CONTEXT_JSON" <<'PY'
+import json, sys
 
-Please pick this up according to your role ownership in EMPLOYEES.md.
-EOF
+role, repo, kind, number, title, url, raw = sys.argv[1:8]
+ctx = {}
+try:
+    ctx = json.loads(raw) if raw else {}
+except Exception:
+    pass
+
+lines = [
+    f"Hoops Mania dispatch handoff.",
+    f"Role: {role}",
+    f"Repo: {repo}",
+    f"Task kind: {kind}",
+    f"Task #: {number}",
+    f"Title: {title}",
+]
+if url:
+    lines.append(f"URL: {url}")
+
+if kind == "pr-followup":
+    lines += [
+        "",
+        "Worker requirements:",
+        "1) Post acknowledgement in the PR thread.",
+        "2) Push fix commit(s) for all feedback items.",
+        "3) Reply in-thread with addressed commit hash(es).",
+        "4) Ensure followup closes only after all review threads are resolved/answered and PR checks are green.",
+    ]
+    if ctx.get("comment_permalinks"):
+        lines.append("")
+        lines.append("Feedback permalinks:")
+        lines.extend([f"- {x}" for x in ctx["comment_permalinks"]])
+
+lines += ["", "Context JSON:", json.dumps(ctx, indent=2)]
+print("\n".join(lines))
+PY
 )
 
 run_target_kind="agent"
