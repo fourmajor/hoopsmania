@@ -83,6 +83,13 @@ automation/github/create_issue_with_body_file.sh \
 - Prefer deleting via GitHub's **Delete branch** action on the merged PR.
 - If a branch must be kept temporarily, document the reason in the PR conversation.
 
+## 10) Standard Label Taxonomy + Auto-Labeling
+
+- Use canonical labels from `docs/contributing/labels.md`.
+- Keep auto-label path rules in `.github/labeler.yml`.
+- PR auto-label workflow is `.github/workflows/pr-auto-label.yml`.
+- Maintainers may always override labels manually.
+
 ## Quick Checklist
 
 Before requesting review:

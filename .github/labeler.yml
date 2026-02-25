@@ -1,0 +1,34 @@
+# Auto-label PRs by touched file paths.
+# Maintainers can always add/remove labels manually afterward.
+
+area:frontend:
+  - changed-files:
+      - any-glob-to-any-file: ['web/**']
+
+area:backend:
+  - changed-files:
+      - any-glob-to-any-file: ['backend/**']
+
+area:automation:
+  - changed-files:
+      - any-glob-to-any-file: ['automation/**', '.github/workflows/**']
+
+area:docs:
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**', '*.md']
+
+type:ci-cd:
+  - changed-files:
+      - any-glob-to-any-file: ['.github/workflows/**']
+
+type:documentation:
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**', '*.md']
+
+type:backend:
+  - changed-files:
+      - any-glob-to-any-file: ['backend/**']
+
+type:frontend:
+  - changed-files:
+      - any-glob-to-any-file: ['web/**']
