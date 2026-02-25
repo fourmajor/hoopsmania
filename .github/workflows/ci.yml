@@ -60,3 +60,17 @@ jobs:
             --issue 83 \
             --employee "pipewire" \
             --dry-run
+
+  employees-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+      - name: Validate canonical employee roster YAML
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml jsonschema
+          python automation/github/validate_employees_yaml.py

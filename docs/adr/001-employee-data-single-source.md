@@ -46,6 +46,12 @@ Adopt **one canonical source** for employee data:
 - **Phase 2 (deprecate):** add notice in `EMPLOYEES.md` that canonical employee data lives in `.openclaw/employees.yaml`.
 - **Phase 3 (enforce):** reject automation changes that bypass canonical YAML.
 
+Implementation status (Issue #89):
+- Canonical YAML implemented.
+- CI validation added.
+- `EMPLOYEES.md` removed.
+- Human-readable reference moved to `docs/contributing/employees.md`.
+
 ## Non-goals (this proposal PR)
 - Full implementation of schema/CI in this PR.
 - Refactoring unrelated automation.

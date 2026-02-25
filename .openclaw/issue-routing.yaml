@@ -39,7 +39,7 @@ pr_rules:
     any_paths: [".github/workflows/", "automation/", "infra/", "docker"]
     role: pipewire
   - name: docs-files
-    any_paths: ["docs/", "README.md", "EMPLOYEES.md"]
+    any_paths: ["docs/", "README.md", ".openclaw/employees.yaml"]
     role: docdrip
 
   - name: backend-label
