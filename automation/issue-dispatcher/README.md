@@ -20,6 +20,7 @@ This is a bootstrap-quality automation path intended for local persistent runtim
 - Logging:
   - dispatcher log: `.openclaw/state/issue-dispatcher.log`
   - bridge log: `.openclaw/state/dispatch-bridge.log`
+  - downstream marker: `OPENCLAW_DISPATCH_RESULT { ...run_id/session_id... }`
 
 ---
 
@@ -113,8 +114,13 @@ Then set payload URL to:
 Default command in `.env.example`:
 
 ```bash
-DISPATCH_HOOK_CMD=./dispatch_bridge.sh {role_q} {repo_q} {issue_number} {issue_title_q} {issue_url_q}
+DISPATCH_HOOK_CMD=./dispatch_bridge.sh {role_q} {repo_q} {issue_number_q} {issue_title_q} {issue_url_q}
 ```
+
+Supported `DISPATCH_HOOK_CMD` placeholders are:
+`{role}` `{repo}` `{issue_number}` `{issue_title}` `{issue_url}` and quoted variants
+`{role_q}` `{repo_q}` `{issue_number_q}` `{issue_title_q}` `{issue_url_q}`.
+Unknown placeholders are rejected with a 400 response.
 
 Bridge routing order:
 
