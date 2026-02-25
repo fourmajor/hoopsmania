@@ -32,6 +32,7 @@ Project contribution rules and standing-instruction policy:
 
 - `docs/contributing/policies.md`
 - `docs/contributing/employees.md` (human-readable employee guide)
+- `docs/contributing/codeowners.md` (ownership + review guardrails)
 
 ## Canonical Employee Source
 
