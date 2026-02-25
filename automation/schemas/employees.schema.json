@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fourmajor.github.io/hoopsmania/schemas/employees.schema.json",
+  "title": "HoopsMania Employees Canonical Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "canonical",
+    "owner",
+    "source_of_truth",
+    "default_staffing_model",
+    "employees",
+    "policies"
+  ],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "canonical": { "const": true },
+    "owner": { "type": "string", "minLength": 1 },
+    "source_of_truth": { "const": ".openclaw/employees.yaml" },
+    "default_staffing_model": { "type": "string", "minLength": 1 },
+    "employees": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "alias",
+          "domain",
+          "persistent",
+          "requires_human_approval",
+          "voice_profile"
+        ],
+        "properties": {
+          "role": { "type": "string", "minLength": 1 },
+          "alias": { "type": "string", "minLength": 1 },
+          "domain": { "type": "string", "minLength": 1 },
+          "persistent": { "type": "boolean" },
+          "requires_human_approval": { "type": "boolean" },
+          "voice_profile": { "type": "string", "minLength": 1 },
+          "notes": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "communication_voice",
+        "hiring_rule",
+        "roster_update_policy",
+        "alias_naming_guidelines"
+      ],
+      "properties": {
+        "communication_voice": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["applies_to", "expectations"],
+          "properties": {
+            "applies_to": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "expectations": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "hiring_rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["when_task_has_no_matching_role"],
+          "properties": {
+            "when_task_has_no_matching_role": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "roster_update_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rules"],
+          "properties": {
+            "rules": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "alias_naming_guidelines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rules"],
+          "properties": {
+            "rules": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

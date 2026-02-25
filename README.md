@@ -31,6 +31,18 @@ Webhook-driven issue routing + OpenClaw handoff:
 Project contribution rules and standing-instruction policy:
 
 - `docs/contributing/policies.md`
+- `docs/contributing/employees.md` (human-readable employee guide)
+
+## Canonical Employee Source
+
+Employee roster and policy metadata are canonical in:
+
+- `.openclaw/employees.yaml`
+
+Validation:
+
+- `python automation/github/validate_employees_yaml.py`
+- CI job: `employees-validate`
 
 PR reminder: include `AI Employee: <name>` near the top of every PR description.
 Issue-body reminder: for multiline issue descriptions, use `gh issue create --body-file` (or `automation/github/create_issue_with_body_file.sh`) to avoid literal `\\n` rendering.

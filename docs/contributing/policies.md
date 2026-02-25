@@ -2,6 +2,9 @@
 
 These rules apply to all contributors and all repos changes.
 
+Canonical employee source of truth: `.openclaw/employees.yaml`.
+Human-readable employee guide: `docs/contributing/employees.md`.
+
 ## 1) Issue First, Then PR
 
 - Create a GitHub issue **before** opening a pull request.
