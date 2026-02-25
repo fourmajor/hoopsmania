@@ -10,8 +10,20 @@ These rules apply to all contributors and all repos changes.
 
 ## 2) PR Descriptions Must Name the Submitting AI Employee
 
-- Every PR description must include: `AI Employee: <name>`.
-- Put this line near the top of the PR description.
+- Every PR description must include a line in this exact format: `AI Employee: <name>`.
+- Put the line near the top of the PR description, before implementation details.
+- PRs missing this line are out of policy and must be updated before review.
+
+Example PR description snippet:
+
+```md
+## Summary
+AI Employee: docdrip
+
+Updated contributor policy docs to require AI employee attribution in PR descriptions.
+
+Closes #<issue-number>
+```
 
 ## 3) Document Standing Instructions Promptly
 
