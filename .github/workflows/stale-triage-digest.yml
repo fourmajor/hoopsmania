@@ -1,0 +1,109 @@
+name: Weekly Stale Triage Digest
+
+on:
+  schedule:
+    - cron: '0 16 * * 1' # Monday 16:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build stale digest
+        id: digest
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const now = Date.now();
+            const staleDays = 7;
+            const staleMs = staleDays * 24 * 60 * 60 * 1000;
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const stale = issues
+              .filter(item => !item.pull_request)
+              .filter(item => now - new Date(item.updated_at).getTime() >= staleMs)
+              .map(item => ({
+                number: item.number,
+                title: item.title,
+                updated_at: item.updated_at,
+                url: item.html_url,
+              }));
+
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const stalePrs = prs
+              .filter(item => now - new Date(item.updated_at).getTime() >= staleMs)
+              .map(item => ({
+                number: item.number,
+                title: item.title,
+                updated_at: item.updated_at,
+                url: item.html_url,
+              }));
+
+            const fs = require('fs');
+            const digest = {
+              generated_at: new Date(now).toISOString(),
+              stale_days_threshold: staleDays,
+              stale_issues: stale,
+              stale_prs: stalePrs,
+            };
+
+            fs.writeFileSync('stale-digest.json', JSON.stringify(digest, null, 2));
+
+            const formatList = (items) => items.length
+              ? items.map(item => `- #${item.number} ${item.title} (updated ${item.updated_at})\n  ${item.url}`).join('\n')
+              : '- None';
+
+            const markdown = [
+              '# Weekly Stale Triage Digest',
+              '',
+              `Generated: ${digest.generated_at}`,
+              `Stale threshold: ${staleDays} days`,
+              '',
+              '## Stale Issues',
+              formatList(stale),
+              '',
+              '## Stale PRs',
+              formatList(stalePrs),
+              '',
+              '> This workflow is reporting-only and does not auto-close issues or PRs.',
+            ].join('\n');
+
+            fs.writeFileSync('stale-digest.md', markdown);
+
+            core.summary
+              .addHeading('Weekly Stale Triage Digest')
+              .addRaw(`Stale threshold: ${staleDays} days\n\n`)
+              .addHeading('Stale Issues', 2)
+              .addRaw(`${formatList(stale)}\n\n`)
+              .addHeading('Stale PRs', 2)
+              .addRaw(`${formatList(stalePrs)}\n\n`)
+              .addRaw('No auto-close behavior is configured in this workflow.')
+              .write();
+
+      - name: Upload stale digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stale-triage-digest
+          path: |
+            stale-digest.json
+            stale-digest.md

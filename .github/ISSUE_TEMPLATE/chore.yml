@@ -1,0 +1,50 @@
+name: Chore
+description: Operational, tooling, documentation, or process work that supports delivery.
+title: "chore: "
+labels:
+  - chore
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why is this chore needed now?
+      placeholder: Trigger, background, and affected team/workflow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What outcome or efficiency gain does this chore provide?
+      placeholder: Risk reduction, workflow simplification, or maintainability gain.
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Details
+      description: What work needs to be completed?
+      placeholder: Concrete checklist or execution plan.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies / Coordination
+      description: Any upstream/downstream dependencies, owners, or sequencing?
+      placeholder: Linked issues, teams, or release timing constraints.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of Done
+      description: What verifiable conditions mark this complete?
+      placeholder: Validation steps, docs updates, communication done.
+    validations:
+      required: true

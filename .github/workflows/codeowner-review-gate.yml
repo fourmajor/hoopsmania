@@ -1,0 +1,98 @@
+name: Codeowner Review Gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  require-codeowner-approval:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce codeowner approval for owned paths
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info('No pull request payload; skipping.');
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const number = pr.number;
+
+            // Keep matching intentionally simple: directory-prefix ownership.
+            const ownership = [
+              { prefix: 'web/', owners: ['fourmajor'] },
+              { prefix: 'backend/', owners: ['fourmajor'] },
+              { prefix: 'automation/', owners: ['fourmajor'] },
+              { prefix: 'docs/', owners: ['fourmajor'] },
+              { prefix: '.github/', owners: ['fourmajor'] },
+            ];
+
+            const files = await github.paginate(
+              github.rest.pulls.listFiles,
+              { owner, repo, pull_number: number, per_page: 100 }
+            );
+
+            const changed = files.map(f => f.filename);
+            core.info(`Changed files: ${changed.join(', ') || '(none)'}`);
+
+            const requiredOwners = new Set();
+            for (const file of changed) {
+              for (const rule of ownership) {
+                if (file.startsWith(rule.prefix)) {
+                  for (const o of rule.owners) requiredOwners.add(o.toLowerCase());
+                }
+              }
+            }
+
+            if (requiredOwners.size === 0) {
+              core.info('No owned paths changed; gate passes.');
+              return;
+            }
+
+            const reviews = await github.paginate(
+              github.rest.pulls.listReviews,
+              { owner, repo, pull_number: number, per_page: 100 }
+            );
+
+            // Latest state per reviewer wins.
+            const latest = new Map();
+            for (const r of reviews) {
+              const login = r.user?.login?.toLowerCase();
+              if (!login) continue;
+              latest.set(login, r.state);
+            }
+
+            const approvedBy = new Set(
+              [...latest.entries()]
+                .filter(([, state]) => state === 'APPROVED')
+                .map(([login]) => login)
+            );
+
+            const authorLogin = pr.user?.login?.toLowerCase();
+            const authorIsRequiredOwner = authorLogin && requiredOwners.has(authorLogin);
+            const hasCodeownerApproval =
+              authorIsRequiredOwner || [...requiredOwners].some(o => approvedBy.has(o));
+
+            core.info(`Required owners: ${[...requiredOwners].join(', ')}`);
+            core.info(`Approved by: ${[...approvedBy].join(', ') || '(none)'}`);
+            core.info(`PR author: ${authorLogin || '(unknown)'}`);
+            if (authorIsRequiredOwner) {
+              core.info('PR author is a required codeowner; treating as approved.');
+            }
+
+            if (!hasCodeownerApproval) {
+              core.setFailed(
+                `Missing codeowner approval. Required owner(s): ${[...requiredOwners].join(', ')}`
+              );
+            }
