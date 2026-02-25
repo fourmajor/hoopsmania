@@ -7,6 +7,7 @@ As frontend/services are added, extend this same runbook pattern.
 
 For deeper details, see:
 - Backend guide: [`docs/run/backend-local.md`](./backend-local.md)
+- Frontend guide (web): [`web/README.md`](../../web/README.md)
 - Configuration guide: [`docs/run/configuration.md`](./configuration.md)
 
 ---
@@ -90,6 +91,20 @@ cd backend
 source .venv/bin/activate
 pytest -q
 ```
+
+### Frontend quickstart (web)
+
+From repo root, in a separate terminal:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open: <http://localhost:3000>
+
+See full frontend notes: [`web/README.md`](../../web/README.md)
 
 ---
 
