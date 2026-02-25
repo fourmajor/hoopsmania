@@ -1,5 +1,12 @@
 # hoopsmania
-HoopsMania: AI-driven global basketball simulation game
+
+```text
+🏀 Hoops Mania
+==============
+Playbooks, runbooks, and automation for an AI-driven basketball sim.
+```
+
+HoopsMania: AI-driven global basketball simulation game.
 
 ## Run Locally
 
