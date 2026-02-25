@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """GitHub Issue -> role router (webhook-driven bootstrap).
 
-This service receives GitHub issue webhooks, classifies each issue using
+Receives GitHub issue webhooks, classifies each issue using
 .openclaw/issue-routing.yaml, and emits a dispatch event to a configurable
 command hook.
-
-Why a command hook?
-- Keeps this service decoupled from OpenClaw internals.
-- Lets you wire in the exact local handoff command you want.
 """
 
 from __future__ import annotations
@@ -15,7 +11,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
+import shlex
 import subprocess
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -30,34 +28,62 @@ ROUTING_FILE = Path(os.getenv("ROUTING_FILE", ROOT / ".openclaw" / "issue-routin
 STATE_DIR = Path(os.getenv("STATE_DIR", ROOT / ".openclaw" / "state"))
 STATE_FILE = STATE_DIR / "processed_deliveries.json"
 
+LOG_DIR = Path(os.getenv("DISPATCHER_LOG_DIR", STATE_DIR))
+LOG_FILE = Path(os.getenv("DISPATCHER_LOG_FILE", LOG_DIR / "issue-dispatcher.log"))
+
 HOST = os.getenv("DISPATCHER_HOST", "127.0.0.1")
 PORT = int(os.getenv("DISPATCHER_PORT", "8787"))
+HOOK_TIMEOUT_SEC = int(os.getenv("DISPATCH_HOOK_TIMEOUT_SEC", "45"))
 
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 GH_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GH_API = os.getenv("GITHUB_API_URL", "https://api.github.com")
 
-# Hook command template. Must include placeholders:
-#   {role} {repo} {issue_number} {issue_title} {issue_url}
+# Hook command template placeholders:
+# {role} {repo} {issue_number} {issue_title} {issue_url}
+# plus shell-escaped variants: *_q
 HOOK_CMD = os.getenv(
     "DISPATCH_HOOK_CMD",
-    "echo '[dispatch] role={role} repo={repo} issue=#{issue_number} title={issue_title}'",
+    str((Path(__file__).resolve().parent / "dispatch_bridge.sh").resolve())
+    + " {role_q} {repo_q} {issue_number} {issue_title_q} {issue_url_q}",
 )
 
 EVENTS_ALLOWED = {"issues"}
 ACTIONS_ALLOWED = {"opened", "edited", "labeled", "reopened"}
 
 
-def _load_state() -> dict[str, bool]:
+logger = logging.getLogger("issue-dispatcher")
+
+
+def _setup_logging() -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        ],
+    )
+
+
+def _load_state() -> dict[str, Any]:
     if not STATE_FILE.exists():
-        return {}
+        return {"deliveries": {}, "fingerprints": {}}
     try:
-        return json.loads(STATE_FILE.read_text())
+        raw = json.loads(STATE_FILE.read_text())
+        # Backward-compat: prior format was {delivery_id: true}
+        if "deliveries" in raw or "fingerprints" in raw:
+            return {
+                "deliveries": raw.get("deliveries", {}),
+                "fingerprints": raw.get("fingerprints", {}),
+            }
+        return {"deliveries": raw, "fingerprints": {}}
     except Exception:
-        return {}
+        return {"deliveries": {}, "fingerprints": {}}
 
 
-def _save_state(state: dict[str, bool]) -> None:
+def _save_state(state: dict[str, Any]) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True))
 
@@ -104,16 +130,28 @@ def _route_issue(issue: dict[str, Any], routing: dict[str, Any]) -> str:
     return routing.get("default_role", "cto-triage")
 
 
+def _fingerprint(payload: dict[str, Any]) -> str:
+    issue = payload.get("issue", {})
+    repo = payload.get("repository", {}).get("full_name", "")
+    action = payload.get("action", "")
+    updated_at = issue.get("updated_at", "")
+    raw = f"{repo}:{issue.get('number')}:{action}:{updated_at}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def _render_hook(role: str, payload: dict[str, Any]) -> str:
     issue = payload["issue"]
     repo = payload["repository"]["full_name"]
-    return HOOK_CMD.format(
-        role=role,
-        repo=repo,
-        issue_number=issue["number"],
-        issue_title=issue["title"].replace("\n", " "),
-        issue_url=issue["html_url"],
-    )
+
+    values = {
+        "role": role,
+        "repo": repo,
+        "issue_number": str(issue["number"]),
+        "issue_title": issue["title"].replace("\n", " "),
+        "issue_url": issue["html_url"],
+    }
+    quoted = {f"{k}_q": shlex.quote(v) for k, v in values.items() if k != "issue_number"}
+    return HOOK_CMD.format(**values, **quoted)
 
 
 def _comment_issue(repo: str, issue_number: int, text: str) -> None:
@@ -130,6 +168,9 @@ def _comment_issue(repo: str, issue_number: int, text: str) -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt: str, *args: Any) -> None:
+        logger.info("http %s - %s", self.address_string(), fmt % args)
+
     def _respond(self, code: HTTPStatus, payload: dict[str, Any]) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(code)
@@ -137,6 +178,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self.path == "/healthz":
+            self._respond(HTTPStatus.OK, {"ok": True})
+            return
+        self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path != "/github/webhook":
@@ -163,8 +210,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         state = _load_state()
-        if delivery and state.get(delivery):
+        if delivery and state["deliveries"].get(delivery):
             self._respond(HTTPStatus.OK, {"ok": True, "ignored": "duplicate delivery"})
+            return
+
+        fp = _fingerprint(payload)
+        if state["fingerprints"].get(fp):
+            self._respond(HTTPStatus.OK, {"ok": True, "ignored": "duplicate payload"})
             return
 
         issue = payload.get("issue")
@@ -177,7 +229,14 @@ class Handler(BaseHTTPRequestHandler):
         role = _route_issue(issue, routing)
         cmd = _render_hook(role, payload)
 
-        result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+        logger.info("dispatch start repo=%s issue=%s role=%s", repo, issue["number"], role)
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            text=True,
+            capture_output=True,
+            timeout=HOOK_TIMEOUT_SEC,
+        )
 
         summary = (
             f"🤖 Issue router assigned this to **{role}**.\n"
@@ -187,8 +246,17 @@ class Handler(BaseHTTPRequestHandler):
         _comment_issue(repo, issue["number"], summary)
 
         if delivery:
-            state[delivery] = True
-            _save_state(state)
+            state["deliveries"][delivery] = True
+        state["fingerprints"][fp] = True
+        _save_state(state)
+
+        logger.info(
+            "dispatch done repo=%s issue=%s role=%s exit=%s",
+            repo,
+            issue["number"],
+            role,
+            result.returncode,
+        )
 
         self._respond(
             HTTPStatus.OK,
@@ -206,10 +274,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print(f"Issue dispatcher listening on http://{HOST}:{PORT}/github/webhook")
-    print(f"Routing file: {ROUTING_FILE}")
+    _setup_logging()
+    logger.info("Issue dispatcher listening on http://%s:%s/github/webhook", HOST, PORT)
+    logger.info("Health endpoint: http://%s:%s/healthz", HOST, PORT)
+    logger.info("Routing file: %s", ROUTING_FILE)
+    logger.info("Log file: %s", LOG_FILE)
     if not WEBHOOK_SECRET:
-        print("WARNING: GITHUB_WEBHOOK_SECRET is empty; signature checks will fail.")
+        logger.warning("GITHUB_WEBHOOK_SECRET is empty; signature checks will fail.")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.serve_forever()
 
