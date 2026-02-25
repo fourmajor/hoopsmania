@@ -46,6 +46,29 @@ class DispatcherRoutingRetryTests(unittest.TestCase):
         self.assertFalse(module._dispatch_ok(0, {"status": "error"}))
         self.assertFalse(module._dispatch_ok(0, None))
 
+    def test_render_hook_forces_default_template_for_pr_followup_if_legacy_cmd(self) -> None:
+        original_hook = module.HOOK_CMD
+        original_default = module.DEFAULT_HOOK_CMD
+        module.HOOK_CMD = "./dispatch_bridge.sh {role_q} {repo_q} {issue_number_q}"
+        module.DEFAULT_HOOK_CMD = "./dispatch_bridge.sh {role_q} {repo_q} {task_kind_q} {task_number_q}"
+        try:
+            cmd = module._render_hook(
+                {
+                    "role": "pipewire",
+                    "repo": "fourmajor/hoopsmania",
+                    "task_kind": "pr-followup",
+                    "task_number": "103",
+                    "task_title": "PR followup",
+                    "task_url": "https://github.com/fourmajor/hoopsmania/pull/103",
+                    "context_json": "{}",
+                }
+            )
+            self.assertIn("pr-followup", cmd)
+            self.assertIn("103", cmd)
+        finally:
+            module.HOOK_CMD = original_hook
+            module.DEFAULT_HOOK_CMD = original_default
+
 
 if __name__ == "__main__":
     unittest.main()

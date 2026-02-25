@@ -1,6 +1,6 @@
 # PR-Feedback Automation Operations Checklist
 
-Owner: **ctrl^core** (Project Manager)  
+Owner: **ctrl^core** (Project Manager)
 Last updated: 2026-02-24
 
 Use this checklist for each PR where automated review feedback is enabled.
@@ -61,3 +61,5 @@ Auto-close may run only when all are true:
 - PR description links a tracking issue (`Closes #...` or `Refs #...`) and includes submitting AI employee name.
 
 If any condition is false, keep PR open and post a status summary with remaining blockers.
+
+- PR feedback automation live test marker (pipewire, 2026-02-25T18:30:27Z)

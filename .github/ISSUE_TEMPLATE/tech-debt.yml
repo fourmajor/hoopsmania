@@ -1,0 +1,50 @@
+name: Tech Debt
+description: Capture maintainability, performance, or architecture debt to be addressed.
+title: "tech-debt: "
+labels:
+  - tech-debt
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What code/system area is affected and why this debt exists?
+      placeholder: Relevant components, history, and constraints.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What is the current cost/risk of leaving this debt unresolved?
+      placeholder: Dev velocity, reliability risk, scaling concerns, cognitive load.
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Proposed Implementation Details
+      description: What approach should be taken to address this debt?
+      placeholder: Refactor strategy, migration steps, affected interfaces.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and Boundaries
+      description: What is explicitly in/out of scope for this effort?
+      placeholder: Include dependencies and follow-up tasks.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of Done
+      description: What evidence confirms this debt is fully addressed?
+      placeholder: Test coverage, benchmark deltas, cleanup completion.
+    validations:
+      required: true

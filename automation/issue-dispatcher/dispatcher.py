@@ -73,11 +73,11 @@ SUPPORTED_HOOK_KEYS = {
     "issue_title_q",
     "issue_url_q",
 }
-HOOK_CMD = os.getenv(
-    "DISPATCH_HOOK_CMD",
+DEFAULT_HOOK_CMD = (
     str((Path(__file__).resolve().parent / "dispatch_bridge.sh").resolve())
-    + " {role_q} {repo_q} {task_kind_q} {task_number_q} {task_title_q} {task_url_q} {context_json_q}",
+    + " {role_q} {repo_q} {task_kind_q} {task_number_q} {task_title_q} {task_url_q} {context_json_q}"
 )
+HOOK_CMD = os.getenv("DISPATCH_HOOK_CMD", DEFAULT_HOOK_CMD)
 
 EVENTS_ALLOWED = {"issues", "pull_request_review", "pull_request_review_comment", "issue_comment"}
 ISSUE_ACTIONS_ALLOWED = {"opened", "edited", "labeled", "reopened"}
@@ -88,6 +88,7 @@ REQUIRED_ACTION_CHECKLIST = [
     "Push fix commit(s) that address each feedback item.",
     "Reply in-thread with addressed commit hash(es).",
 ]
+MAX_CURSOR_HISTORY = 500
 
 logger = logging.getLogger("issue-dispatcher")
 
@@ -305,6 +306,29 @@ def _route_pr_feedback(repo: str, pr: dict[str, Any], routing: dict[str, Any]) -
     return _normalize_role(routing.get("default_pr_role"), routing, pr=True)
 
 
+def _feedback_cursor(payload: dict[str, Any], evt: str) -> str:
+    repo = payload.get("repository", {}).get("full_name", "")
+    action = payload.get("action", "")
+    pr = payload.get("pull_request", {}) or payload.get("issue", {})
+    pr_number = pr.get("number", "")
+
+    if evt == "pull_request_review":
+        review = payload.get("review", {})
+        review_id = review.get("id")
+        if review_id is not None:
+            return f"{evt}:{repo}:{pr_number}:{action}:review:{review_id}"
+        return f"{evt}:{repo}:{pr_number}:{action}:{review.get('submitted_at', '')}"
+
+    comment = payload.get("comment", {})
+    comment_id = comment.get("id")
+    if comment_id is not None:
+        return f"{evt}:{repo}:{pr_number}:{action}:comment:{comment_id}"
+
+    updated_at = comment.get("updated_at") or comment.get("created_at") or pr.get("updated_at", "")
+    permalink = payload.get("review", {}).get("html_url") or comment.get("html_url", "")
+    return f"{evt}:{repo}:{pr_number}:{action}:{updated_at}:{permalink}"
+
+
 def _fingerprint(payload: dict[str, Any], evt: str) -> str:
     repo = payload.get("repository", {}).get("full_name", "")
     action = payload.get("action", "")
@@ -313,16 +337,7 @@ def _fingerprint(payload: dict[str, Any], evt: str) -> str:
         updated_at = issue.get("updated_at", "")
         raw = f"{evt}:{repo}:{issue.get('number')}:{action}:{updated_at}"
     else:
-        pr = payload.get("pull_request", {}) or payload.get("issue", {})
-        pr_number = pr.get("number", "")
-        updated_at = (
-            payload.get("review", {}).get("submitted_at")
-            or payload.get("comment", {}).get("updated_at")
-            or payload.get("comment", {}).get("created_at")
-            or pr.get("updated_at", "")
-        )
-        permalink = payload.get("review", {}).get("html_url") or payload.get("comment", {}).get("html_url", "")
-        raw = f"{evt}:{repo}:{pr_number}:{action}:{updated_at}:{permalink}"
+        raw = _feedback_cursor(payload, evt)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -336,11 +351,22 @@ def _render_hook(task: dict[str, str]) -> str:
     merged = {**task, **aliases}
 
     quoted = {f"{k}_q": shlex.quote(v) for k, v in merged.items()}
-    fields = {fname for _, fname, _, _ in string.Formatter().parse(HOOK_CMD) if fname}
+
+    template = HOOK_CMD
+    fields = {fname for _, fname, _, _ in string.Formatter().parse(template) if fname}
     unknown = sorted(fields.difference(SUPPORTED_HOOK_KEYS))
     if unknown:
         raise ValueError(f"DISPATCH_HOOK_CMD has unsupported placeholders: {', '.join(unknown)}")
-    return HOOK_CMD.format(**merged, **quoted)
+
+    task_kind = task.get("task_kind", "")
+    has_task_kind_placeholder = "task_kind" in fields or "task_kind_q" in fields
+    if task_kind == "pr-followup" and not has_task_kind_placeholder:
+        logger.warning(
+            "DISPATCH_HOOK_CMD missing task_kind placeholder; forcing default command for PR followups"
+        )
+        template = DEFAULT_HOOK_CMD
+
+    return template.format(**merged, **quoted)
 
 
 def _comment_issue(repo: str, issue_number: int, text: str) -> None:
@@ -418,6 +444,8 @@ def _extract_pr_feedback(payload: dict[str, Any], evt: str) -> dict[str, Any] | 
         "feedback_body": body,
         "source": source,
         "sender": payload.get("sender", {}).get("login", "unknown"),
+        "event_cursor": _feedback_cursor(payload, evt),
+        "comment_id": payload.get("comment", {}).get("id") or payload.get("review", {}).get("id"),
     }
 
 
@@ -430,36 +458,56 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
     followups = _load_followups()
     existing = followups["tasks"].get(key)
 
+    routed_role = _route_pr_feedback(
+        feedback["repo"],
+        {
+            "number": feedback["pr_number"],
+            "title": feedback["pr_title"],
+            "body": feedback["body"],
+            "labels": feedback.get("labels", []),
+        },
+        routing,
+    )
+
     if existing:
         task = existing
         is_new = False
     else:
-        role = _route_pr_feedback(
-            feedback["repo"],
-            {
-                "number": feedback["pr_number"],
-                "title": feedback["pr_title"],
-                "body": feedback["body"],
-                "labels": feedback.get("labels", []),
-            },
-            routing,
-        )
         task = {
             "id": key,
-            "status": "open",
-            "repo": feedback["repo"],
-            "pr_number": feedback["pr_number"],
-            "pr_title": feedback["pr_title"],
-            "pr_url": feedback["pr_url"],
-            "role": role,
-            "required_action_checklist": REQUIRED_ACTION_CHECKLIST,
-            "comment_permalinks": [],
-            "events": [],
             "created_at": _now_iso(),
-            "updated_at": _now_iso(),
-            "closed_at": None,
         }
         is_new = True
+
+    # Backfill/migrate legacy records.
+    task.setdefault("id", key)
+    task.setdefault("repo", feedback["repo"])
+    task.setdefault("pr_number", feedback["pr_number"])
+    task.setdefault("pr_title", feedback["pr_title"])
+    task.setdefault("pr_url", feedback["pr_url"])
+    task.setdefault("required_action_checklist", REQUIRED_ACTION_CHECKLIST)
+    if not isinstance(task.get("comment_permalinks"), list):
+        task["comment_permalinks"] = []
+    if not isinstance(task.get("events"), list):
+        task["events"] = []
+
+    task["role"] = _normalize_role(routed_role, routing, pr=True)
+    if not isinstance(task.get("processed_event_cursors"), list):
+        task["processed_event_cursors"] = []
+
+    event_cursor = feedback.get("event_cursor", "")
+    is_duplicate_event = bool(event_cursor and event_cursor in task["processed_event_cursors"])
+    if not is_duplicate_event and event_cursor:
+        task["processed_event_cursors"].append(event_cursor)
+        if len(task["processed_event_cursors"]) > MAX_CURSOR_HISTORY:
+            task["processed_event_cursors"] = task["processed_event_cursors"][-MAX_CURSOR_HISTORY:]
+
+    # New feedback should always reopen followup.
+    task["status"] = "open"
+    task["closed_at"] = None
+    if not is_duplicate_event:
+        task["event_sequence"] = int(task.get("event_sequence", 0)) + 1
+    task["active_event_cursor"] = event_cursor
 
     permalink = feedback.get("permalink")
     if permalink and permalink not in task["comment_permalinks"]:
@@ -471,9 +519,13 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
             "action": payload.get("action", ""),
             "source": feedback.get("source", ""),
             "sender": feedback.get("sender", ""),
+            "event_cursor": event_cursor,
+            "comment_id": feedback.get("comment_id"),
+            "duplicate_event": is_duplicate_event,
             "at": _now_iso(),
         }
     )
+    task["last_event_duplicate"] = is_duplicate_event
     task["updated_at"] = _now_iso()
 
     followups["tasks"][key] = task

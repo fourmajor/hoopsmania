@@ -176,6 +176,25 @@ cd automation/issue-dispatcher
 
 5. For live tests, use GitHub webhook **Recent Deliveries -> Redeliver**.
 
+## Verify webhook subscriptions (important)
+
+PR feedback automation requires these webhook events on the repository hook:
+
+- `issues`
+- `issue_comment`
+- `pull_request_review`
+- `pull_request_review_comment`
+
+Use the verifier (AI Employee: pipewire):
+
+```bash
+cd automation/issue-dispatcher
+export GITHUB_TOKEN=<repo-admin-token>
+python verify_webhook_events.py --repo fourmajor/hoopsmania --hook-id <HOOK_ID>
+# auto-repair if needed:
+python verify_webhook_events.py --repo fourmajor/hoopsmania --hook-id <HOOK_ID> --apply
+```
+
 ---
 
 ## What is still manual

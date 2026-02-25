@@ -1,9 +1,9 @@
 # hoopsmania
 
 ```text
- _   _  ___   ___  ____   ____    __  __    _    _   _ ___    _   
-| | | |/ _ \ / _ \|  _ \ / ___|  |  \/  |  / \  | \ | |_ _|  / \  
-| |_| | | | | | | | |_) |\___ \  | |\/| | / _ \ |  \| || |  / _ \ 
+ _   _  ___   ___  ____   ____    __  __    _    _   _ ___    _
+| | | |/ _ \ / _ \|  _ \ / ___|  |  \/  |  / \  | \ | |_ _|  / \
+| |_| | | | | | | | |_) |\___ \  | |\/| | / _ \ |  \| || |  / _ \
 |  _  | |_| | |_| |  __/  ___) | | |  | |/ ___ \| |\  || | / ___ \
 |_| |_|\___/ \___/|_|    |____/  |_|  |_/_/   \_\_| \_|___/_/   \_\
 
@@ -13,9 +13,15 @@
 
 HoopsMania: AI-driven global basketball simulation game.
 
+## Developer Onboarding
+
+New contributor? Start with the 30-minute onboarding guide:
+
+- `docs/onboarding/developer-onboarding.md`
+
 ## Run Locally
 
-Start here for local setup and service runbooks:
+Local setup and service runbooks:
 
 - `docs/run/README.md`
 
@@ -26,6 +32,8 @@ Webhook-driven issue routing + OpenClaw handoff:
 - `automation/issue-dispatcher/README.md`
 - `docs/run/issue-dispatcher-local.md`
 
+Dispatcher fallback note: when legacy hook templates are detected, fallback enforcement sets `task_kind=pr-followup` for PR followup dispatches only (it does not apply to standard issue routing).
+
 ## Contributor Policies
 
 Project contribution rules and standing-instruction policy:
@@ -33,6 +41,9 @@ Project contribution rules and standing-instruction policy:
 - `docs/contributing/policies.md`
 - `docs/contributing/employees.md` (human-readable employee guide)
 - `docs/contributing/security-update-hygiene.md` (vulnerability triage and remediation policy)
+- `docs/contributing/labels.md` (label taxonomy + automation)
+- `docs/contributing/pre-commit.md` (hook setup and maintenance)
+- `docs/contributing/codeowners.md` (ownership + review guardrails)
 
 ## Canonical Employee Source
 
@@ -47,4 +58,4 @@ Validation:
 
 PR reminder: include `AI Employee: <name>` near the top of every PR description.
 Issue-body reminder: for multiline issue descriptions, use `gh issue create --body-file` (or `automation/github/create_issue_with_body_file.sh`) to avoid literal `\\n` rendering.
-Issue-comment reminder: every agent-posted GitHub issue comment must include `AI Employee: <name>`. 
+Issue-comment reminder: every agent-posted GitHub issue comment must include `AI Employee: <name>`.

@@ -7,12 +7,93 @@ on:
     branches: [main, dev]
 
 jobs:
+  changes:
+    name: Detect impacted areas
+    runs-on: ubuntu-latest
+    outputs:
+      run_backend: ${{ steps.decide.outputs.run_backend }}
+      run_frontend: ${{ steps.decide.outputs.run_frontend }}
+      backend_reason: ${{ steps.decide.outputs.backend_reason }}
+      frontend_reason: ${{ steps.decide.outputs.frontend_reason }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect changed paths
+        id: filter
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'web/**'
+            shared:
+              - '.github/**'
+              - 'automation/**'
+              - '.openclaw/**'
+              - '*.md'
+              - '.gitignore'
+              - 'LICENSE'
+      - name: Decide test matrix
+        id: decide
+        shell: bash
+        run: |
+          run_backend=false
+          run_frontend=false
+          backend_reason="Skipped: no backend/shared changes in PR"
+          frontend_reason="Skipped: no frontend/shared changes in PR"
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            run_backend=true
+            run_frontend=true
+            backend_reason="Ran: push event fallback runs full suite"
+            frontend_reason="Ran: push event fallback runs full suite"
+          else
+            backend_changed="${{ steps.filter.outputs.backend }}"
+            frontend_changed="${{ steps.filter.outputs.frontend }}"
+            shared_changed="${{ steps.filter.outputs.shared }}"
+
+            if [ "$shared_changed" = "true" ]; then
+              run_backend=true
+              run_frontend=true
+              backend_reason="Ran: shared/core files changed"
+              frontend_reason="Ran: shared/core files changed"
+            else
+              if [ "$backend_changed" = "true" ]; then
+                run_backend=true
+                backend_reason="Ran: backend paths changed"
+              fi
+
+              if [ "$frontend_changed" = "true" ]; then
+                run_frontend=true
+                frontend_reason="Ran: frontend paths changed"
+              fi
+            fi
+          fi
+
+          echo "run_backend=$run_backend" >> "$GITHUB_OUTPUT"
+          echo "run_frontend=$run_frontend" >> "$GITHUB_OUTPUT"
+          echo "backend_reason=$backend_reason" >> "$GITHUB_OUTPUT"
+          echo "frontend_reason=$frontend_reason" >> "$GITHUB_OUTPUT"
+
+      - name: Matrix decision summary
+        run: |
+          echo "Backend tests: ${{ steps.decide.outputs.run_backend }}"
+          echo "Reason: ${{ steps.decide.outputs.backend_reason }}"
+          echo "Frontend tests: ${{ steps.decide.outputs.run_frontend }}"
+          echo "Reason: ${{ steps.decide.outputs.frontend_reason }}"
+
   backend-tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.run_backend == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Decision reason
+        run: echo "${{ needs.changes.outputs.backend_reason }}"
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: 3.11
       - name: Install dependencies
@@ -20,15 +101,18 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt
       - name: Run tests
-        run: |
-          python -m pytest backend/tests
+        run: python -m pytest backend/tests
 
   frontend-tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.run_frontend == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Decision reason
+        run: echo "${{ needs.changes.outputs.frontend_reason }}"
       - name: Set up Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Install dependencies
@@ -40,12 +124,27 @@ jobs:
           cd web
           npm run test
 
-  pr-body-guardrail:
+  pre-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python
         uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+      - name: Install pre-commit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pre-commit
+      - name: Run pre-commit hooks
+        run: pre-commit run --all-files
+
+  pr-body-guardrail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: 3.11
       - name: Run PR body guardrail tests
@@ -64,9 +163,9 @@ jobs:
   employees-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: 3.11
       - name: Validate canonical employee roster YAML
