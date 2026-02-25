@@ -1,29 +1,29 @@
 # Issue Dispatcher (Webhook-Driven)
 
-This service implements the first pass of **Implementation B**:
+GitHub issue event -> role routing -> OpenClaw handoff bridge.
 
-`GitHub issue event -> route to role -> handoff hook`
+This is a bootstrap-quality automation path intended for local persistent runtime.
 
-## What it does today
+## What is implemented
 
-- Receives GitHub webhooks at `POST /github/webhook`
-- Verifies webhook signatures with `GITHUB_WEBHOOK_SECRET`
-- Routes issue to a role using `.openclaw/issue-routing.yaml`
-- Executes a configurable handoff command (`DISPATCH_HOOK_CMD`)
-- Optionally posts an assignment comment back to the issue (`GITHUB_TOKEN`)
-- Deduplicates webhook deliveries
-
-## What it does not do yet
-
-- Direct OpenClaw sub-agent spawning from inside this process
-- Retry queue / dead-letter processing
-- Rich confidence scoring
-
-Those are good next steps once initial routing is stable.
+- Webhook endpoint: `POST /github/webhook`
+- Signature verification: `X-Hub-Signature-256` against `GITHUB_WEBHOOK_SECRET`
+- Role routing from `.openclaw/issue-routing.yaml`
+- `DISPATCH_HOOK_CMD` support (defaults to `dispatch_bridge.sh`)
+- OpenClaw bridge routing:
+  - role -> persistent session id (`OPENCLAW_SESSION_<ROLE>`)
+  - role -> agent id fallback (`OPENCLAW_AGENT_<ROLE>`)
+  - fallback agent (`OPENCLAW_FALLBACK_AGENT`)
+- Idempotency protection:
+  - delivery-id dedupe (`X-GitHub-Delivery`)
+  - payload fingerprint dedupe (`repo+issue+action+updated_at`)
+- Logging:
+  - dispatcher log: `.openclaw/state/issue-dispatcher.log`
+  - bridge log: `.openclaw/state/dispatch-bridge.log`
 
 ---
 
-## Quick start (copy/paste)
+## Setup
 
 From repo root:
 
@@ -32,56 +32,144 @@ cd automation/issue-dispatcher
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Set environment variables:
+Edit `.env` with real values (do not commit `.env`).
 
-```bash
-export GITHUB_WEBHOOK_SECRET='replace-with-webhook-secret'
-export GITHUB_TOKEN='replace-with-fine-grained-token'
-export DISPATCHER_HOST='127.0.0.1'
-export DISPATCHER_PORT='8787'
-```
+### Required env vars
 
-Set the dispatch hook command:
+- `GITHUB_WEBHOOK_SECRET`
 
-```bash
-export DISPATCH_HOOK_CMD='echo role={role} repo={repo} issue={issue_number} title="{issue_title}" url={issue_url}'
-```
+### Recommended env vars
 
-Run the dispatcher:
-
-```bash
-python dispatcher.py
-```
+- `GITHUB_TOKEN` (for assignment comments back to issue)
+- `OPENCLAW_SESSION_<ROLE>` mappings for persistent employee sessions
 
 ---
 
-## GitHub webhook configuration
+## Run options
 
-In GitHub repo settings:
+### A) Foreground dev run
 
-- **Payload URL:** `https://<your-public-endpoint>/github/webhook`
+```bash
+cd automation/issue-dispatcher
+./run_dispatcher.sh
+```
+
+### B) Persistent service (macOS launchd)
+
+```bash
+cd automation/issue-dispatcher
+./dispatcher_service.sh install
+./dispatcher_service.sh status
+```
+
+Useful lifecycle commands:
+
+```bash
+./dispatcher_service.sh start
+./dispatcher_service.sh stop
+./dispatcher_service.sh restart
+./dispatcher_service.sh logs
+```
+
+### C) Non-macOS fallback
+
+`dispatcher_service.sh` automatically falls back to a nohup/pidfile runner.
+
+---
+
+## GitHub webhook wiring
+
+In the target repository settings:
+
+- **Settings -> Webhooks -> Add webhook**
+- **Payload URL:** `https://<public-endpoint>/github/webhook`
 - **Content type:** `application/json`
-- **Secret:** must match `GITHUB_WEBHOOK_SECRET`
-- **Events:** `Issues` (opened/edited/labeled/reopened)
+- **Secret:** same value as `GITHUB_WEBHOOK_SECRET`
+- **Events:** choose **Let me select individual events** -> check **Issues**
+- **Active:** enabled
 
-For local testing, use a tunnel (Cloudflare Tunnel, ngrok, etc.) from public HTTPS -> `127.0.0.1:8787`.
+### Local tunnel option
+
+For local machine testing, expose local dispatcher:
+
+```bash
+# Example with ngrok
+ngrok http 8787
+```
+
+Then set payload URL to:
+
+`https://<ngrok-id>.ngrok-free.app/github/webhook`
+
+(Cloudflare Tunnel or similar is also fine.)
 
 ---
 
-## Routing config
+## DISPATCH_HOOK_CMD + bridge behavior
 
-Edit:
+Default command in `.env.example`:
 
-- `.openclaw/issue-routing.yaml`
+```bash
+DISPATCH_HOOK_CMD=./dispatch_bridge.sh {role_q} {repo_q} {issue_number} {issue_title_q} {issue_url_q}
+```
 
-The dispatcher picks the first matching rule and falls back to `default_role`.
+Bridge routing order:
+
+1. `OPENCLAW_SESSION_<ROLE_KEY>` (persistent employee session)
+2. `OPENCLAW_AGENT_<ROLE_KEY>` (role-specific agent id)
+3. `OPENCLAW_FALLBACK_AGENT` (default: `main`)
+
+Role key transform examples:
+
+- `tech-writer` -> `OPENCLAW_SESSION_TECH_WRITER`
+- `backend-dev` -> `OPENCLAW_SESSION_BACKEND_DEV`
+- `devops` -> `OPENCLAW_SESSION_DEVOPS`
 
 ---
 
-## Suggested next step (OpenClaw integration)
+## Idempotency + logging notes
 
-Point `DISPATCH_HOOK_CMD` at a small bridge script that invokes your preferred OpenClaw handoff method for each role.
+- Dispatcher persists dedupe state at `.openclaw/state/processed_deliveries.json`.
+- Two checks prevent duplicate handoffs:
+  - same `X-GitHub-Delivery`
+  - same payload fingerprint (`repo+issue+action+updated_at`)
+- If state file is deleted, dedupe history resets.
+- Hook execution timeout defaults to 45s (`DISPATCH_HOOK_TIMEOUT_SEC`).
 
-This keeps routing logic stable while you iterate on agent orchestration.
+Logs to check first when debugging:
+
+```bash
+tail -n 100 .openclaw/state/issue-dispatcher.log
+tail -n 100 .openclaw/state/dispatch-bridge.log
+```
+
+---
+
+## Verification steps
+
+1. Start dispatcher service/run script.
+2. Confirm health endpoint:
+
+```bash
+curl -sS http://127.0.0.1:8787/healthz
+```
+
+3. Run local synthetic webhook test:
+
+```bash
+cd automation/issue-dispatcher
+./test_webhook.sh
+```
+
+4. In GitHub, use **Webhooks -> Recent Deliveries -> Redeliver** and verify duplicates are ignored.
+
+---
+
+## What is still manual
+
+- Creating/maintaining role->session-id mappings in `.env`
+- Ensuring OpenClaw/Gateway auth is already configured on the host
+- Creating and running a public tunnel for local webhook delivery
