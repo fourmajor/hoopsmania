@@ -44,6 +44,12 @@ Default staffing model for delegated work.
 13. **Business Strategy Lead** (`stratforge`)
    - Owns product/business strategy alignment, prioritization framing, and go-to-market decision support.
 
+14. **Marketing** (`hypepulse`)
+   - Placeholder role for blog updates; broader marketing scope will be defined later.
+
+15. **Developer Productivity Engineer** (`devlane`)
+   - Owns GitHub workflow quality, tooling hygiene, and developer-experience automation.
+
 ## Hiring Rule
 
 If an incoming task does **not** clearly fit one of the roles above:
