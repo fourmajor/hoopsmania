@@ -33,3 +33,4 @@ Project contribution rules and standing-instruction policy:
 - `docs/contributing/policies.md`
 
 PR reminder: include `AI Employee: <name>` near the top of every PR description.
+Issue-comment reminder: every agent-posted GitHub issue comment must include `AI Employee: <name>`. 
