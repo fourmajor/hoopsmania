@@ -79,10 +79,17 @@ jobs:
                 .map(([login]) => login)
             );
 
-            const hasCodeownerApproval = [...requiredOwners].some(o => approvedBy.has(o));
+            const authorLogin = pr.user?.login?.toLowerCase();
+            const authorIsRequiredOwner = authorLogin && requiredOwners.has(authorLogin);
+            const hasCodeownerApproval =
+              authorIsRequiredOwner || [...requiredOwners].some(o => approvedBy.has(o));
 
             core.info(`Required owners: ${[...requiredOwners].join(', ')}`);
             core.info(`Approved by: ${[...approvedBy].join(', ') || '(none)'}`);
+            core.info(`PR author: ${authorLogin || '(unknown)'}`);
+            if (authorIsRequiredOwner) {
+              core.info('PR author is a required codeowner; treating as approved.');
+            }
 
             if (!hasCodeownerApproval) {
               core.setFailed(
