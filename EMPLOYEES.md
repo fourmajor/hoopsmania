@@ -28,7 +28,7 @@ Default staffing model for delegated work.
 8. **Data/Simulation Engineer** (`mont3carlo`)
    - Owns simulation models, balancing logic, metrics instrumentation, and tuning analysis.
 
-9. **Game Designer** (`funLogic`)
+9. **Game Designer** (`fun_logic`)
    - Owns core game loop design, progression systems, engagement/fun tuning, and feature design intent.
 
 10. **HR / People Ops** (`pplOps^root`)
