@@ -11,7 +11,25 @@ For deeper details, see:
 
 ---
 
-## 0) Open terminal at repo root
+## 0) Get the code
+
+HTTPS clone (recommended default):
+
+```bash
+git clone https://github.com/fourmajor/hoopsmania.git
+cd hoopsmania
+```
+
+SSH clone (if your GitHub SSH keys are configured):
+
+```bash
+git clone git@github.com:fourmajor/hoopsmania.git
+cd hoopsmania
+```
+
+---
+
+## 1) Open terminal at repo root
 
 ```bash
 cd /path/to/hoopsmania
@@ -19,7 +37,7 @@ cd /path/to/hoopsmania
 
 ---
 
-## 1) Setup
+## 2) Setup
 
 Create and activate a Python virtual environment, then install dependencies.
 
@@ -35,7 +53,7 @@ python -m pip install -r requirements.txt
 
 ---
 
-## 2) Run
+## 3) Run
 
 Start the backend API with auto-reload enabled:
 
@@ -51,7 +69,7 @@ Expected local endpoints:
 
 ---
 
-## 3) Verify
+## 4) Verify
 
 In a second terminal:
 
@@ -75,7 +93,7 @@ pytest -q
 
 ---
 
-## 4) Stop
+## 5) Stop
 
 In the server terminal where `uvicorn` is running:
 
@@ -85,7 +103,7 @@ Ctrl+C
 
 ---
 
-## 5) Restart
+## 6) Restart
 
 Use this for day-to-day backend work:
 
@@ -97,7 +115,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ---
 
-## 6) Troubleshooting quick checks
+## 7) Troubleshooting quick checks
 
 ### A) Port 8000 already in use
 
