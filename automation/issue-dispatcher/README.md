@@ -32,12 +32,16 @@ This is a bootstrap-quality automation path intended for local persistent runtim
   - label + file-path + title/body matching
   - fallback: `default_pr_role` (recommended `ctrl^core`)
   - if a routed role is blank/unknown, normalize to safe fallback (`ctrl^core`)
+- Security review gate:
+  - for PRs that are **not** purely security-focused, locktrace approval is required before followup auto-close
+  - if locktrace requests changes, dispatcher routes work back to the owning engineer automatically
+  - override/exception label: `security-review:override` (configurable with `LOCKTRACE_OVERRIDE_LABEL`)
 - Worker handoff message includes explicit required behavior:
   - post acknowledgement in PR thread
   - push fix commit(s)
   - reply with addressed commit hash(es)
 - Closure gate:
-  - followup closes only when **all review threads are resolved** and **PR checks are green**
+  - followup closes only when **all review threads are resolved**, **PR checks are green**, and locktrace gate is satisfied for non-security PRs
 
 ### Operational behavior
 - Idempotency protection:
@@ -84,6 +88,12 @@ Edit `.env` with real values (do not commit `.env`).
   - `0`: allow confident non-opened issue events to auto-execute too
 - `FORCE_TRIAGE_LABEL=<label>` (default `dispatch:triage`)
   - if present on an issue, force fallback to `default_role` triage even when role matching is confident
+
+### Security review gate controls
+
+- `LOCKTRACE_GITHUB_LOGIN=<login>` (default `locktrace`)
+- `LOCKTRACE_OVERRIDE_LABEL=<label>` (default `security-review:override`)
+  - if override label is applied, locktrace approval gate is bypassed for exception handling
 
 ---
 

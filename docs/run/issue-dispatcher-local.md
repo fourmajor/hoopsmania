@@ -21,6 +21,9 @@ Edit `.env`:
   - `AUTO_EXECUTE_NEW_ISSUES=1` (default)
   - `AUTO_EXECUTE_ONLY_ON_OPENED=1` (default)
   - `FORCE_TRIAGE_LABEL=dispatch:triage` (default)
+- security-gate controls:
+  - `LOCKTRACE_GITHUB_LOGIN=locktrace` (default)
+  - `LOCKTRACE_OVERRIDE_LABEL=security-review:override` (default)
 
 ## 2) Run as persistent service
 
@@ -83,13 +86,19 @@ cd automation/issue-dispatcher
 
 ## 7) Closure gate behavior
 
-Followup record closes only when both are true:
+Followup record closes only when all required checks pass:
 
 1. all PR review threads resolved/answered
 2. latest PR checks are green
+3. for PRs that are **not** purely security-focused, latest locktrace review state is `APPROVED`
 
-If either condition is not satisfied or API data unavailable, followup remains open.
+If any condition is not satisfied or API data is unavailable, followup remains open.
+
+Override/exception path:
+- Add label `security-review:override` (or your configured `LOCKTRACE_OVERRIDE_LABEL`) to bypass locktrace gate for urgent exceptions.
+- Use this sparingly and include rationale in PR comments.
 
 Routing fallback safety:
 - PR feedback routing uses `default_pr_role` when no rule matches.
 - If a configured role is blank/unknown, dispatcher normalizes to `ctrl^core`.
+- If locktrace requests changes, dispatcher automatically routes follow-up to the owning engineer (`owner_role`).

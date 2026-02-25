@@ -77,7 +77,13 @@ automation/github/create_issue_with_body_file.sh \
   --repo "fourmajor/hoopsmania"
 ```
 
-## 8) Delete Branches After PR Merge
+## 8) Mandatory locktrace Security Review for Non-Security PRs
+
+- Any PR that is **not purely security-focused** must receive locktrace security review before merge.
+- If locktrace requests changes, follow-up work must route back to the owning engineer automatically.
+- Exception path: apply `security-review:override` label and include rationale in PR comments.
+
+## 9) Delete Branches After PR Merge
 
 - Delete the working branch immediately after the PR is merged.
 - Prefer deleting via GitHub's **Delete branch** action on the merged PR.
@@ -94,6 +100,7 @@ Before requesting review:
 - [ ] Multiline PR body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Multiline issue body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Any new standing instruction has been documented.
+- [ ] Non-security PRs include locktrace review approval (or documented `security-review:override` exception).
 
 After merge:
 

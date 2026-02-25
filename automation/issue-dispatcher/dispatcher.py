@@ -89,6 +89,30 @@ REQUIRED_ACTION_CHECKLIST = [
     "Reply in-thread with addressed commit hash(es).",
 ]
 
+LOCKTRACE_GITHUB_LOGIN = os.getenv("LOCKTRACE_GITHUB_LOGIN", "locktrace").strip().lower()
+LOCKTRACE_OVERRIDE_LABEL = os.getenv("LOCKTRACE_OVERRIDE_LABEL", "security-review:override").strip().lower()
+SECURITY_FOCUS_LABELS = {"security", "security-focused", "security-focus", "security-only", "sec"}
+SECURITY_FOCUS_PATH_HINTS = {
+    "security/",
+    "compliance/",
+    "threat-model",
+    "threat_model",
+    "vuln",
+    "vulnerability",
+    "sast",
+    "dast",
+}
+SECURITY_FOCUS_TEXT_HINTS = {
+    "security",
+    "vulnerability",
+    "cve",
+    "threat",
+    "compliance",
+    "hardening",
+    "authz",
+    "authn",
+}
+
 logger = logging.getLogger("issue-dispatcher")
 
 
@@ -277,15 +301,68 @@ def _gh_graphql(query: str, variables: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+def _pr_files(repo: str, pr_number: int) -> list[str]:
+    files_json = _gh_api_json(f"/repos/{repo}/pulls/{pr_number}/files")
+    if isinstance(files_json, list):
+        return [x.get("filename", "") for x in files_json if x.get("filename")]
+    return []
+
+
+def _locktrace_actor(login: str | None) -> bool:
+    return bool(login) and login.strip().lower() == LOCKTRACE_GITHUB_LOGIN
+
+
+def _is_security_focused_pr(repo: str, pr: dict[str, Any]) -> bool:
+    labels = {x.get("name", "").lower() for x in pr.get("labels", []) if x.get("name")}
+    title = (pr.get("title", "") or "").lower()
+    body = (pr.get("body", "") or "").lower()
+    number = int(pr.get("number", 0) or 0)
+    file_paths = _pr_files(repo, number)
+
+    if labels.intersection(SECURITY_FOCUS_LABELS):
+        return True
+
+    text_blob = f"{title}\n{body}"
+    if any(hint in text_blob for hint in SECURITY_FOCUS_TEXT_HINTS):
+        if file_paths and all(any(hint in fp.lower() for hint in SECURITY_FOCUS_PATH_HINTS) for fp in file_paths):
+            return True
+
+    return bool(file_paths) and all(any(hint in fp.lower() for hint in SECURITY_FOCUS_PATH_HINTS) for fp in file_paths)
+
+
+def _latest_locktrace_review_state(repo: str, pr_number: int) -> str | None:
+    data = _gh_api_json(f"/repos/{repo}/pulls/{pr_number}/reviews")
+    if not isinstance(data, list):
+        return None
+    state = None
+    for review in data:
+        user = (review.get("user") or {}).get("login", "")
+        if not _locktrace_actor(user):
+            continue
+        state = (review.get("state") or "").upper()
+    return state
+
+
+def _locktrace_change_request_signal(payload: dict[str, Any], evt: str) -> bool:
+    sender = (payload.get("sender") or {}).get("login", "")
+    if not _locktrace_actor(sender):
+        return False
+
+    if evt == "pull_request_review":
+        state = ((payload.get("review") or {}).get("state") or "").lower()
+        return state == "changes_requested"
+
+    text = ((payload.get("comment") or {}).get("body") or (payload.get("review") or {}).get("body") or "").lower()
+    hints = ["changes requested", "request changes", "security issue", "security concern", "must fix"]
+    return any(h in text for h in hints)
+
+
 def _route_pr_feedback(repo: str, pr: dict[str, Any], routing: dict[str, Any]) -> str:
     labels = {x.get("name", "").lower() for x in pr.get("labels", []) if x.get("name")}
     title = pr.get("title", "")
     body = pr.get("body", "") or ""
 
-    file_paths: list[str] = []
-    files_json = _gh_api_json(f"/repos/{repo}/pulls/{pr.get('number')}/files")
-    if isinstance(files_json, list):
-        file_paths = [x.get("filename", "") for x in files_json if x.get("filename")]
+    file_paths = _pr_files(repo, int(pr.get("number", 0) or 0))
 
     for rule in routing.get("pr_rules", []):
         any_labels = [x.lower() for x in rule.get("any_labels", [])]
@@ -430,20 +507,20 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
     followups = _load_followups()
     existing = followups["tasks"].get(key)
 
+    pr_ctx = {
+        "number": feedback["pr_number"],
+        "title": feedback["pr_title"],
+        "body": feedback["body"],
+        "labels": feedback.get("labels", []),
+    }
+    owner_role = _route_pr_feedback(feedback["repo"], pr_ctx, routing)
+    security_focused = _is_security_focused_pr(feedback["repo"], pr_ctx)
+
     if existing:
         task = existing
         is_new = False
+        task["owner_role"] = task.get("owner_role") or owner_role
     else:
-        role = _route_pr_feedback(
-            feedback["repo"],
-            {
-                "number": feedback["pr_number"],
-                "title": feedback["pr_title"],
-                "body": feedback["body"],
-                "labels": feedback.get("labels", []),
-            },
-            routing,
-        )
         task = {
             "id": key,
             "status": "open",
@@ -451,7 +528,11 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
             "pr_number": feedback["pr_number"],
             "pr_title": feedback["pr_title"],
             "pr_url": feedback["pr_url"],
-            "role": role,
+            "labels": feedback.get("labels", []),
+            "role": owner_role,
+            "owner_role": owner_role,
+            "security_focused": security_focused,
+            "security_review_required": not security_focused,
             "required_action_checklist": REQUIRED_ACTION_CHECKLIST,
             "comment_permalinks": [],
             "events": [],
@@ -460,6 +541,10 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
             "closed_at": None,
         }
         is_new = True
+
+    if _locktrace_change_request_signal(payload, evt):
+        task["status"] = "open"
+        task["role"] = task.get("owner_role") or owner_role
 
     permalink = feedback.get("permalink")
     if permalink and permalink not in task["comment_permalinks"]:
@@ -474,6 +559,8 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
             "at": _now_iso(),
         }
     )
+    task["labels"] = feedback.get("labels", [])
+    task["role"] = task.get("owner_role") or owner_role
     task["updated_at"] = _now_iso()
 
     followups["tasks"][key] = task
@@ -544,7 +631,16 @@ def _attempt_close_followup(task: dict[str, Any]) -> tuple[bool, str]:
     threads_ok = _all_threads_resolved(task["repo"], int(task["pr_number"]))
     checks_ok = _checks_green(task["repo"], int(task["pr_number"]))
 
-    if threads_ok is True and checks_ok is True:
+    labels = {x.get("name", "").lower() for x in task.get("labels", []) if x.get("name")}
+    override_used = bool(LOCKTRACE_OVERRIDE_LABEL and LOCKTRACE_OVERRIDE_LABEL in labels)
+    security_required = bool(task.get("security_review_required", False)) and not override_used
+
+    locktrace_ok = True
+    if security_required:
+        latest_locktrace_state = _latest_locktrace_review_state(task["repo"], int(task["pr_number"]))
+        locktrace_ok = latest_locktrace_state == "APPROVED"
+
+    if threads_ok is True and checks_ok is True and locktrace_ok is True:
         followups = _load_followups()
         key = task["id"]
         current = followups["tasks"].get(key, task)
@@ -553,13 +649,17 @@ def _attempt_close_followup(task: dict[str, Any]) -> tuple[bool, str]:
         current["updated_at"] = _now_iso()
         followups["tasks"][key] = current
         _save_followups(followups)
-        return True, "all review threads resolved and checks green"
+        return True, "all review threads resolved, checks green, and locktrace gate satisfied"
 
     reasons = []
     if threads_ok is not True:
         reasons.append("review threads still unresolved or unavailable")
     if checks_ok is not True:
         reasons.append("checks not green or unavailable")
+    if locktrace_ok is not True:
+        reasons.append("locktrace approval required for non-security PR")
+    if override_used:
+        reasons.append(f"override label `{LOCKTRACE_OVERRIDE_LABEL}` applied")
     return False, "; ".join(reasons)
 
 
@@ -569,9 +669,12 @@ def _dispatch_task(task: dict[str, Any]) -> tuple[int, str, str, dict[str, Any] 
         "repo": task["repo"],
         "pr_number": task["pr_number"],
         "pr_url": task["pr_url"],
+        "owner_role": task.get("owner_role", task.get("role", "")),
+        "security_review_required": bool(task.get("security_review_required", False)),
+        "locktrace_override_label": LOCKTRACE_OVERRIDE_LABEL,
         "comment_permalinks": task.get("comment_permalinks", []),
         "required_action_checklist": task.get("required_action_checklist", []),
-        "closure_gate": "Close only when all review threads are resolved/answered and checks are green.",
+        "closure_gate": "Close only when review threads are resolved, checks are green, and locktrace approves non-security PRs (unless override label is applied).",
     }
     cmd = _render_hook(
         {
@@ -788,6 +891,8 @@ class Handler(BaseHTTPRequestHandler):
         record_message = (
             f"🤖 Review followup {progress}: `{task['id']}`\n"
             f"- AI Employee: **{task['role']}**\n"
+            f"- owner role: **{task.get('owner_role', task['role'])}**\n"
+            f"- security review required: `{str(bool(task.get('security_review_required', False))).lower()}`\n"
             f"- comment permalinks tracked: `{len(task.get('comment_permalinks', []))}`\n"
             "- required action checklist:\n"
             "  - [ ] post acknowledgement in PR thread\n"
