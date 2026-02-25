@@ -8,7 +8,7 @@
 
 This is the fastest **copy/paste-friendly** path to get Hoops Mania running locally.
 
-Current priority: **backend development flow**.  
+Current priority: **backend development flow**.
 As frontend/services are added, extend this same runbook pattern.
 
 For deeper details, see:

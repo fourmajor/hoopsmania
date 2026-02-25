@@ -1,6 +1,6 @@
 # PR-Feedback Automation Operations Checklist
 
-Owner: **ctrl^core** (Project Manager)  
+Owner: **ctrl^core** (Project Manager)
 Last updated: 2026-02-24
 
 Use this checklist for each PR where automated review feedback is enabled.
