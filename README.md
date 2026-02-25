@@ -9,6 +9,13 @@ Start here for local setup and service runbooks:
 
 ## Automation
 
-Webhook-driven issue routing bootstrap:
+Webhook-driven issue routing + OpenClaw handoff:
 
 - `automation/issue-dispatcher/README.md`
+- `docs/run/issue-dispatcher-local.md`
+
+## Contributor Policies
+
+Project contribution rules and standing-instruction policy:
+
+- `docs/contributing/policies.md`
