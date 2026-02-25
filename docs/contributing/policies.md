@@ -39,7 +39,13 @@ When fourmajor gives a standing instruction (phrases like "in the future", "alwa
 - After merge, verify the linked issue is closed.
 - If work is complete without a PR, close the issue manually with a short resolution note.
 
-## 5) Delete Branches After PR Merge
+## 5) PR Body Formatting Standard (No Literal `\n`)
+
+- For multiline PR descriptions, use `gh pr create --body-file <file>` (preferred) or a heredoc-written file.
+- Avoid escaped newline strings like `--body "line1\\nline2"` for multiline content.
+- Canonical helper: `automation/github/create_pr_with_body_file.sh`
+
+## 6) Delete Branches After PR Merge
 
 - Delete the working branch immediately after the PR is merged.
 - Prefer deleting via GitHub's **Delete branch** action on the merged PR.
@@ -52,6 +58,7 @@ Before requesting review:
 - [ ] Related issue exists.
 - [ ] PR description includes `AI Employee: <name>` near the top.
 - [ ] PR links the issue (`Closes #...` / `Refs #...`).
+- [ ] Multiline PR body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Any new standing instruction has been documented.
 
 After merge:

@@ -1,26 +1,47 @@
 # Issue Dispatcher (Webhook-Driven)
 
-GitHub issue event -> role routing -> OpenClaw handoff bridge.
+GitHub webhook events -> role routing -> OpenClaw handoff bridge.
 
 This is a bootstrap-quality automation path intended for local persistent runtime.
 
 ## What is implemented
 
+### Issue routing (existing)
 - Webhook endpoint: `POST /github/webhook`
 - Signature verification: `X-Hub-Signature-256` against `GITHUB_WEBHOOK_SECRET`
 - Role routing from `.openclaw/issue-routing.yaml`
 - `DISPATCH_HOOK_CMD` support (defaults to `dispatch_bridge.sh`)
-- OpenClaw bridge routing:
-  - role -> persistent session id (`OPENCLAW_SESSION_<ROLE>`)
-  - role -> agent id fallback (`OPENCLAW_AGENT_<ROLE>`)
-  - fallback agent (`OPENCLAW_FALLBACK_AGENT`)
+
+### PR feedback auto-addressing (new)
+- Trigger events:
+  - `pull_request_review`
+  - `pull_request_review_comment`
+  - `issue_comment` (only when comment is on a PR)
+- Auto-create/link a review-followup task record in:
+  - `.openclaw/state/review_followups.json`
+- Task record includes:
+  - PR number + URL
+  - tracked comment permalink(s)
+  - required action checklist
+  - route owner + event history + status
+- Auto-route to owning employee via `pr_rules` heuristics in `.openclaw/issue-routing.yaml`
+  - label + file-path + title/body matching
+  - fallback: `default_pr_role` (recommended `ctrl^core`)
+- Worker handoff message includes explicit required behavior:
+  - post acknowledgement in PR thread
+  - push fix commit(s)
+  - reply with addressed commit hash(es)
+- Closure gate:
+  - followup closes only when **all review threads are resolved** and **PR checks are green**
+
+### Operational behavior
 - Idempotency protection:
   - delivery-id dedupe (`X-GitHub-Delivery`)
-  - payload fingerprint dedupe (`repo+issue+action+updated_at`)
+  - payload fingerprint dedupe
 - Logging:
   - dispatcher log: `.openclaw/state/issue-dispatcher.log`
   - bridge log: `.openclaw/state/dispatch-bridge.log`
-  - downstream marker: `OPENCLAW_DISPATCH_RESULT { ...run_id/session_id... }`
+  - downstream marker: `OPENCLAW_DISPATCH_RESULT { ... }`
 
 ---
 
@@ -44,8 +65,8 @@ Edit `.env` with real values (do not commit `.env`).
 
 ### Recommended env vars
 
-- `GITHUB_TOKEN` (for assignment comments back to issue)
-- `OPENCLAW_SESSION_<ROLE>` mappings for persistent employee sessions
+- `GITHUB_TOKEN` (required for PR file heuristics + closure gate + comments)
+- `OPENCLAW_SESSION_<ROLE_KEY>` mappings for persistent employee sessions
 
 ---
 
@@ -66,116 +87,82 @@ cd automation/issue-dispatcher
 ./dispatcher_service.sh status
 ```
 
-Useful lifecycle commands:
-
-```bash
-./dispatcher_service.sh start
-./dispatcher_service.sh stop
-./dispatcher_service.sh restart
-./dispatcher_service.sh logs
-```
-
-### C) Non-macOS fallback
-
-`dispatcher_service.sh` automatically falls back to a nohup/pidfile runner.
-
 ---
 
 ## GitHub webhook wiring
 
-In the target repository settings:
+In repository settings:
 
 - **Settings -> Webhooks -> Add webhook**
 - **Payload URL:** `https://<public-endpoint>/github/webhook`
 - **Content type:** `application/json`
-- **Secret:** same value as `GITHUB_WEBHOOK_SECRET`
-- **Events:** choose **Let me select individual events** -> check **Issues**
-- **Active:** enabled
-
-### Local tunnel option
-
-For local machine testing, expose local dispatcher:
-
-```bash
-# Example with ngrok
-ngrok http 8787
-```
-
-Then set payload URL to:
-
-`https://<ngrok-id>.ngrok-free.app/github/webhook`
-
-(Cloudflare Tunnel or similar is also fine.)
+- **Secret:** same as `GITHUB_WEBHOOK_SECRET`
+- **Events:** choose **Let me select individual events** and enable:
+  - **Issues**
+  - **Pull request reviews**
+  - **Pull request review comments**
+  - **Issue comments**
 
 ---
 
-## DISPATCH_HOOK_CMD + bridge behavior
+## Dispatch bridge placeholders
 
 Default command in `.env.example`:
 
 ```bash
-DISPATCH_HOOK_CMD=./dispatch_bridge.sh {role_q} {repo_q} {issue_number_q} {issue_title_q} {issue_url_q}
+DISPATCH_HOOK_CMD=./dispatch_bridge.sh {role_q} {repo_q} {task_kind_q} {task_number_q} {task_title_q} {task_url_q} {context_json_q}
 ```
 
-Supported `DISPATCH_HOOK_CMD` placeholders are:
-`{role}` `{repo}` `{issue_number}` `{issue_title}` `{issue_url}` and quoted variants
-`{role_q}` `{repo_q}` `{issue_number_q}` `{issue_title_q}` `{issue_url_q}`.
-Unknown placeholders are rejected with a 400 response.
+Supported placeholders:
 
-Bridge routing order:
+- `{role}` `{repo}` `{task_kind}` `{task_number}` `{task_title}` `{task_url}` `{context_json}`
+- shell-safe variants: `{role_q}` etc.
 
-1. `OPENCLAW_SESSION_<ROLE_KEY>` (persistent employee session)
-2. `OPENCLAW_AGENT_<ROLE_KEY>` (role-specific agent id)
-3. `OPENCLAW_FALLBACK_AGENT` (default: `main`)
-
-Role key transform examples:
-
-- `tech-writer` -> `OPENCLAW_SESSION_TECH_WRITER`
-- `backend-dev` -> `OPENCLAW_SESSION_BACKEND_DEV`
-- `devops` -> `OPENCLAW_SESSION_DEVOPS`
+Unknown placeholders are rejected with HTTP 400.
 
 ---
 
-## Idempotency + logging notes
+## Review followup record schema (stored)
 
-- Dispatcher persists dedupe state at `.openclaw/state/processed_deliveries.json`.
-- Two checks prevent duplicate handoffs:
-  - same `X-GitHub-Delivery`
-  - same payload fingerprint (`repo+issue+action+updated_at`)
-- If state file is deleted, dedupe history resets.
-- Hook execution timeout defaults to 45s (`DISPATCH_HOOK_TIMEOUT_SEC`).
+Each task is keyed by `<repo>#<pr_number>` and includes:
 
-Logs to check first when debugging:
-
-```bash
-tail -n 100 .openclaw/state/issue-dispatcher.log
-tail -n 100 .openclaw/state/dispatch-bridge.log
-```
+- `status`: `open|closed`
+- `role`
+- `pr_number`, `pr_title`, `pr_url`
+- `comment_permalinks[]`
+- `required_action_checklist[]`
+- event history timestamps
+- `closed_at` when closure gate passes
 
 ---
 
 ## Verification steps
 
-1. Start dispatcher service/run script.
+1. Start dispatcher.
 2. Confirm health endpoint:
 
 ```bash
 curl -sS http://127.0.0.1:8787/healthz
 ```
 
-3. Run local synthetic webhook test:
+3. Send synthetic issue + PR feedback payloads:
 
 ```bash
 cd automation/issue-dispatcher
 ./test_webhook.sh
 ```
 
-4. In GitHub, use **Webhooks -> Recent Deliveries -> Redeliver** and verify duplicates are ignored.
+4. Confirm:
+- issue routing still works
+- followup record created/updated in `.openclaw/state/review_followups.json`
+- duplicate delivery gets ignored
+
+5. For live tests, use GitHub webhook **Recent Deliveries -> Redeliver**.
 
 ---
 
 ## What is still manual
 
-- Creating/maintaining role->session-id mappings in `.env`
-- Ensuring OpenClaw/Gateway auth is already configured on the host
-- Creating and running a public tunnel for local webhook delivery
+- Maintaining role mapping env vars (`OPENCLAW_SESSION_*` / `OPENCLAW_AGENT_*`)
+- Keeping OpenClaw/Gateway auth healthy on host
+- Running a public tunnel when testing locally

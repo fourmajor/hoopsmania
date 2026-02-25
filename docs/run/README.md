@@ -16,6 +16,7 @@ For deeper details, see:
 - Frontend guide (web): [`web/README.md`](../../web/README.md)
 - Issue dispatcher guide: [`docs/run/issue-dispatcher-local.md`](./issue-dispatcher-local.md)
 - Configuration guide: [`docs/run/configuration.md`](./configuration.md)
+- PR creation guide (multiline body standard): [`docs/run/pr-creation.md`](./pr-creation.md)
 
 ---
 
