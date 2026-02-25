@@ -44,5 +44,18 @@ The repository runs a security audit workflow that:
 - scans Node dependencies (`npm audit`) in `web/`
 - uploads machine-readable reports as workflow artifacts
 - fails the workflow when actionable high-risk findings are present
+- permits narrowly scoped, time-boxed ignores only when no compatible upstream patch exists
 
 This keeps vulnerability visibility explicit and actionable in every PR and push.
+
+## Temporary vulnerability exceptions
+
+Use exceptions only when all of the following are true:
+
+1. The advisory cannot be remediated without incompatible upstream constraints.
+2. A mitigation or reduced exposure is documented.
+3. The exception is explicit in CI and reviewed monthly.
+
+Current exception in CI:
+
+- `GHSA-7f5h-v6xp-fcq8` / `CVE-2025-62727` (Starlette range parser DoS), temporarily ignored while FastAPI-compatible Starlette patch is unavailable in this stack.
