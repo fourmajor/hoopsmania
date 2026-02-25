@@ -125,23 +125,10 @@ print("\n".join(lines))
 PY
 )
 
-run_target_kind="agent"
-run_target="$OPENCLAW_FALLBACK_AGENT"
-run_args=(--agent "$OPENCLAW_FALLBACK_AGENT")
-
-if [[ -n "$session_id" ]]; then
-  run_target_kind="session"
-  run_target="$session_id"
-  run_args=(--session-id "$session_id")
-  log "[bridge] steering to persistent session via $session_var=$session_id"
-elif [[ -n "$agent_id" ]]; then
-  run_target_kind="agent"
-  run_target="$agent_id"
-  run_args=(--agent "$agent_id")
-  log "[bridge] no session mapping; falling back to role agent via $agent_var=$agent_id"
-else
-  log "[bridge] no role mapping found; falling back to OPENCLAW_FALLBACK_AGENT=$OPENCLAW_FALLBACK_AGENT"
-fi
+run_target_kind=""
+run_target=""
+run_args=()
+rc=1
 
 out_file="$(mktemp)"
 err_file="$(mktemp)"
@@ -150,20 +137,69 @@ cleanup() {
 }
 trap cleanup EXIT
 
-set +e
-"$OPENCLAW_BIN" agent "${run_args[@]}" --message "$message" --json >"$out_file" 2>"$err_file"
-rc=$?
-set -e
+attempt_handoff() {
+  local target_kind="$1"
+  local target_value="$2"
+  shift 2
+  local -a args=("$@")
 
-if [[ -s "$err_file" ]]; then
-  while IFS= read -r line; do
-    log "[bridge][stderr] $line"
-  done <"$err_file"
+  run_target_kind="$target_kind"
+  run_target="$target_value"
+  run_args=("${args[@]}")
+
+  : >"$out_file"
+  : >"$err_file"
+
+  set +e
+  "$OPENCLAW_BIN" agent "${run_args[@]}" --message "$message" --json >"$out_file" 2>"$err_file"
+  rc=$?
+  set -e
+
+  if [[ -s "$err_file" ]]; then
+    while IFS= read -r line; do
+      log "[bridge][stderr] $line"
+    done <"$err_file"
+  fi
+
+  if [[ $rc -eq 0 ]]; then
+    return 0
+  fi
+
+  log "[bridge] handoff attempt failed rc=$rc target_kind=$run_target_kind target=$run_target"
+  return 1
+}
+
+if [[ -n "$session_id" ]]; then
+  log "[bridge] trying persistent session via $session_var=$session_id"
+  if attempt_handoff "session" "$session_id" --session-id "$session_id"; then
+    :
+  fi
+fi
+
+if [[ $rc -ne 0 && -n "$agent_id" ]]; then
+  log "[bridge] trying role agent via $agent_var=$agent_id"
+  if attempt_handoff "agent" "$agent_id" --agent "$agent_id"; then
+    :
+  fi
 fi
 
 if [[ $rc -ne 0 ]]; then
-  log "[bridge] openclaw handoff failed rc=$rc target_kind=$run_target_kind target=$run_target"
-  emit_marker "error" "$run_target_kind" "$run_target" "" "$session_id"
+  log "[bridge] trying fallback agent OPENCLAW_FALLBACK_AGENT=$OPENCLAW_FALLBACK_AGENT"
+  if attempt_handoff "agent" "$OPENCLAW_FALLBACK_AGENT" --agent "$OPENCLAW_FALLBACK_AGENT"; then
+    :
+  fi
+fi
+
+if [[ $rc -ne 0 && "$OPENCLAW_FALLBACK_AGENT" != "main" ]]; then
+  log "[bridge] trying hard fallback agent=main"
+  if attempt_handoff "agent" "main" --agent "main"; then
+    :
+  fi
+fi
+
+if [[ $rc -ne 0 ]]; then
+  log "[bridge] openclaw handoff failed after all fallbacks"
+  emit_marker "error" "agent" "${run_target:-$OPENCLAW_FALLBACK_AGENT}" "" "$session_id"
   exit "$rc"
 fi
 
