@@ -21,9 +21,47 @@ BRIDGE_LOG_FILE="${BRIDGE_LOG_FILE:-$STATE_DIR/dispatch-bridge.log}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-$HOME/.npm-global/bin/openclaw}"
 OPENCLAW_FALLBACK_AGENT="${OPENCLAW_FALLBACK_AGENT:-main}"
 
+# launchd often has a minimal PATH; ensure node/openclaw runtime paths are available.
+export PATH="${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}:/opt/homebrew/bin:/usr/local/bin:$HOME/.npm-global/bin"
+
 log() {
   printf '%s %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$*" | tee -a "$BRIDGE_LOG_FILE" >&2
 }
+
+emit_marker() {
+  local status="$1"
+  local target_kind="$2"
+  local target_value="$3"
+  local run_id="$4"
+  local session_id="$5"
+
+  local marker
+  marker=$(python3 - "$status" "$target_kind" "$target_value" "$run_id" "$session_id" "$ROLE" "$REPO" "$ISSUE_NUMBER" <<'PY'
+import json, sys
+
+payload = {
+    "status": sys.argv[1],
+    "target_kind": sys.argv[2],
+    "target": sys.argv[3],
+    "run_id": sys.argv[4],
+    "session_id": sys.argv[5],
+    "role": sys.argv[6],
+    "repo": sys.argv[7],
+    "issue_number": sys.argv[8],
+}
+print("OPENCLAW_DISPATCH_RESULT " + json.dumps(payload, separators=(",", ":")))
+PY
+)
+
+  printf '%s\n' "$marker"
+  log "[bridge] $marker"
+}
+
+if [[ ! -x "$OPENCLAW_BIN" ]]; then
+  log "[bridge] openclaw binary not found at $OPENCLAW_BIN"
+  emit_marker "error" "binary" "$OPENCLAW_BIN" "" ""
+  exit 127
+fi
 
 role_key="$(echo "$ROLE" | tr '[:lower:]-' '[:upper:]_')"
 session_var="OPENCLAW_SESSION_${role_key}"
@@ -43,20 +81,82 @@ Please pick this up according to your role ownership in EMPLOYEES.md.
 EOF
 )
 
-if [[ ! -x "$OPENCLAW_BIN" ]]; then
-  log "[bridge] openclaw binary not found at $OPENCLAW_BIN"
-  exit 127
-fi
+run_target_kind="agent"
+run_target="$OPENCLAW_FALLBACK_AGENT"
+run_args=(--agent "$OPENCLAW_FALLBACK_AGENT")
 
 if [[ -n "$session_id" ]]; then
+  run_target_kind="session"
+  run_target="$session_id"
+  run_args=(--session-id "$session_id")
   log "[bridge] steering to persistent session via $session_var=$session_id"
-  exec "$OPENCLAW_BIN" agent --session-id "$session_id" --message "$message"
-fi
-
-if [[ -n "$agent_id" ]]; then
+elif [[ -n "$agent_id" ]]; then
+  run_target_kind="agent"
+  run_target="$agent_id"
+  run_args=(--agent "$agent_id")
   log "[bridge] no session mapping; falling back to role agent via $agent_var=$agent_id"
-  exec "$OPENCLAW_BIN" agent --agent "$agent_id" --message "$message"
+else
+  log "[bridge] no role mapping found; falling back to OPENCLAW_FALLBACK_AGENT=$OPENCLAW_FALLBACK_AGENT"
 fi
 
-log "[bridge] no role mapping found; falling back to OPENCLAW_FALLBACK_AGENT=$OPENCLAW_FALLBACK_AGENT"
-exec "$OPENCLAW_BIN" agent --agent "$OPENCLAW_FALLBACK_AGENT" --message "$message"
+out_file="$(mktemp)"
+err_file="$(mktemp)"
+cleanup() {
+  rm -f "$out_file" "$err_file"
+}
+trap cleanup EXIT
+
+set +e
+"$OPENCLAW_BIN" agent "${run_args[@]}" --message "$message" --json >"$out_file" 2>"$err_file"
+rc=$?
+set -e
+
+if [[ -s "$err_file" ]]; then
+  while IFS= read -r line; do
+    log "[bridge][stderr] $line"
+  done <"$err_file"
+fi
+
+if [[ $rc -ne 0 ]]; then
+  log "[bridge] openclaw handoff failed rc=$rc target_kind=$run_target_kind target=$run_target"
+  emit_marker "error" "$run_target_kind" "$run_target" "" "$session_id"
+  exit "$rc"
+fi
+
+run_id=""
+resolved_session_id="$session_id"
+parse_output=$(python3 - "$out_file" <<'PY'
+import json, pathlib, sys
+
+raw = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+obj = json.loads(raw)
+run_id = obj.get("runId", "")
+session_id = (
+    obj.get("result", {})
+      .get("meta", {})
+      .get("agentMeta", {})
+      .get("sessionId", "")
+)
+print(run_id)
+print(session_id)
+PY
+) || {
+  log "[bridge] failed to parse openclaw json output"
+  emit_marker "error" "$run_target_kind" "$run_target" "" "$session_id"
+  exit 1
+}
+
+run_id="$(printf '%s\n' "$parse_output" | sed -n '1p')"
+parsed_session_id="$(printf '%s\n' "$parse_output" | sed -n '2p')"
+if [[ -n "$parsed_session_id" ]]; then
+  resolved_session_id="$parsed_session_id"
+fi
+
+if [[ -z "$run_id" ]]; then
+  log "[bridge] openclaw response missing runId"
+  emit_marker "error" "$run_target_kind" "$run_target" "" "$resolved_session_id"
+  exit 1
+fi
+
+log "[bridge] openclaw handoff ok run_id=$run_id target_kind=$run_target_kind target=$run_target session_id=$resolved_session_id"
+emit_marker "ok" "$run_target_kind" "$run_target" "$run_id" "$resolved_session_id"

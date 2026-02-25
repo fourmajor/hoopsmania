@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import shlex
+import string
 import subprocess
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -42,6 +43,18 @@ GH_API = os.getenv("GITHUB_API_URL", "https://api.github.com")
 # Hook command template placeholders:
 # {role} {repo} {issue_number} {issue_title} {issue_url}
 # plus shell-escaped variants: *_q
+SUPPORTED_HOOK_KEYS = {
+    "role",
+    "repo",
+    "issue_number",
+    "issue_title",
+    "issue_url",
+    "role_q",
+    "repo_q",
+    "issue_number_q",
+    "issue_title_q",
+    "issue_url_q",
+}
 HOOK_CMD = os.getenv(
     "DISPATCH_HOOK_CMD",
     str((Path(__file__).resolve().parent / "dispatch_bridge.sh").resolve())
@@ -150,7 +163,13 @@ def _render_hook(role: str, payload: dict[str, Any]) -> str:
         "issue_title": issue["title"].replace("\n", " "),
         "issue_url": issue["html_url"],
     }
-    quoted = {f"{k}_q": shlex.quote(v) for k, v in values.items() if k != "issue_number"}
+    quoted = {f"{k}_q": shlex.quote(v) for k, v in values.items()}
+
+    fields = {fname for _, fname, _, _ in string.Formatter().parse(HOOK_CMD) if fname}
+    unknown = sorted(fields.difference(SUPPORTED_HOOK_KEYS))
+    if unknown:
+        raise ValueError(f"DISPATCH_HOOK_CMD has unsupported placeholders: {', '.join(unknown)}")
+
     return HOOK_CMD.format(**values, **quoted)
 
 
@@ -165,6 +184,17 @@ def _comment_issue(repo: str, issue_number: int, text: str) -> None:
     req.add_header("Content-Type", "application/json")
     with request.urlopen(req, timeout=10):
         pass
+
+
+def _extract_dispatch_marker(stdout: str) -> dict[str, Any] | None:
+    marker_prefix = "OPENCLAW_DISPATCH_RESULT "
+    for line in reversed(stdout.splitlines()):
+        if line.startswith(marker_prefix):
+            try:
+                return json.loads(line[len(marker_prefix) :])
+            except json.JSONDecodeError:
+                return None
+    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -227,7 +257,12 @@ class Handler(BaseHTTPRequestHandler):
 
         routing = _load_routing()
         role = _route_issue(issue, routing)
-        cmd = _render_hook(role, payload)
+        try:
+            cmd = _render_hook(role, payload)
+        except ValueError as exc:
+            logger.error("invalid dispatch hook template: %s", exc)
+            self._respond(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            return
 
         logger.info("dispatch start repo=%s issue=%s role=%s", repo, issue["number"], role)
         result = subprocess.run(
@@ -238,10 +273,21 @@ class Handler(BaseHTTPRequestHandler):
             timeout=HOOK_TIMEOUT_SEC,
         )
 
+        marker = _extract_dispatch_marker(result.stdout)
+        marker_line = "- downstream: `missing-marker`"
+        if marker:
+            marker_line = (
+                "- downstream: "
+                f"`{marker.get('status', 'unknown')}` "
+                f"run=`{marker.get('run_id', '')}` "
+                f"target=`{marker.get('target_kind', '')}:{marker.get('target', '')}`"
+            )
+
         summary = (
             f"🤖 Issue router assigned this to **{role}**.\n"
             f"- action: `{action}`\n"
             f"- dispatcher exit: `{result.returncode}`\n"
+            f"{marker_line}\n"
         )
         _comment_issue(repo, issue["number"], summary)
 
@@ -251,11 +297,12 @@ class Handler(BaseHTTPRequestHandler):
         _save_state(state)
 
         logger.info(
-            "dispatch done repo=%s issue=%s role=%s exit=%s",
+            "dispatch done repo=%s issue=%s role=%s exit=%s downstream=%s",
             repo,
             issue["number"],
             role,
             result.returncode,
+            json.dumps(marker, sort_keys=True) if marker else "missing",
         )
 
         self._respond(
