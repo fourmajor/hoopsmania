@@ -6,11 +6,15 @@ This is a bootstrap-quality automation path intended for local persistent runtim
 
 ## What is implemented
 
-### Issue routing (existing)
+### Issue routing + auto-execution (enhanced)
 - Webhook endpoint: `POST /github/webhook`
 - Signature verification: `X-Hub-Signature-256` against `GITHUB_WEBHOOK_SECRET`
 - Role routing from `.openclaw/issue-routing.yaml`
 - `DISPATCH_HOOK_CMD` support (defaults to `dispatch_bridge.sh`)
+- For **new issues** (`action=opened`):
+  - if routing has a **single non-default role match**, the owning employee is auto-executed immediately
+  - if low confidence (no match / ambiguous multi-role match), dispatcher falls back to `default_role` (recommended `ctrl^core`) for triage
+- Dispatcher issue comments include `AI Employee: <name>` and use start/update/done progress wording
 
 ### PR feedback auto-addressing (new)
 - Trigger events:
@@ -67,6 +71,17 @@ Edit `.env` with real values (do not commit `.env`).
 
 - `GITHUB_TOKEN` (required for PR file heuristics + closure gate + comments)
 - `OPENCLAW_SESSION_<ROLE_KEY>` mappings for persistent employee sessions
+
+### Auto-execution controls
+
+- `AUTO_EXECUTE_NEW_ISSUES=1|0`
+  - `1` (default): allow auto-execution path for confident routes
+  - `0`: disable auto-execution and always hand off issue-opened events to triage behavior
+- `AUTO_EXECUTE_ONLY_ON_OPENED=1|0`
+  - `1` (default): only auto-execute when issue action is `opened`
+  - `0`: allow confident non-opened issue events to auto-execute too
+- `FORCE_TRIAGE_LABEL=<label>` (default `dispatch:triage`)
+  - if present on an issue, force fallback to `default_role` triage even when role matching is confident
 
 ---
 
