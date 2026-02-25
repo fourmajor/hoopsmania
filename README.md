@@ -1,9 +1,9 @@
 # hoopsmania
 
 ```text
- _   _  ___   ___  ____   ____    __  __    _    _   _ ___    _   
-| | | |/ _ \ / _ \|  _ \ / ___|  |  \/  |  / \  | \ | |_ _|  / \  
-| |_| | | | | | | | |_) |\___ \  | |\/| | / _ \ |  \| || |  / _ \ 
+ _   _  ___   ___  ____   ____    __  __    _    _   _ ___    _
+| | | |/ _ \ / _ \|  _ \ / ___|  |  \/  |  / \  | \ | |_ _|  / \
+| |_| | | | | | | | |_) |\___ \  | |\/| | / _ \ |  \| || |  / _ \
 |  _  | |_| | |_| |  __/  ___) | | |  | |/ ___ \| |\  || | / ___ \
 |_| |_|\___/ \___/|_|    |____/  |_|  |_/_/   \_\_| \_|___/_/   \_\
 
@@ -33,6 +33,7 @@ Project contribution rules and standing-instruction policy:
 - `docs/contributing/policies.md`
 - `docs/contributing/employees.md` (human-readable employee guide)
 - `docs/contributing/pre-commit.md` (hook setup and maintenance)
+- `docs/contributing/codeowners.md` (ownership + review guardrails)
 
 ## Canonical Employee Source
 
@@ -47,4 +48,4 @@ Validation:
 
 PR reminder: include `AI Employee: <name>` near the top of every PR description.
 Issue-body reminder: for multiline issue descriptions, use `gh issue create --body-file` (or `automation/github/create_issue_with_body_file.sh`) to avoid literal `\\n` rendering.
-Issue-comment reminder: every agent-posted GitHub issue comment must include `AI Employee: <name>`. 
+Issue-comment reminder: every agent-posted GitHub issue comment must include `AI Employee: <name>`.
