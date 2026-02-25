@@ -34,7 +34,7 @@ mkdir -p "$STATE_DIR"
 
 BRIDGE_LOG_FILE="${BRIDGE_LOG_FILE:-$STATE_DIR/dispatch-bridge.log}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-$HOME/.npm-global/bin/openclaw}"
-OPENCLAW_FALLBACK_AGENT="${OPENCLAW_FALLBACK_AGENT:-main}"
+OPENCLAW_FALLBACK_AGENT="${OPENCLAW_FALLBACK_AGENT:-ctrl^core}"
 
 export PATH="${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}:/opt/homebrew/bin:/usr/local/bin:$HOME/.npm-global/bin"
 

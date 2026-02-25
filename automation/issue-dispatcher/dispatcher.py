@@ -166,6 +166,41 @@ def _contains_any(haystack: str, needles: list[str]) -> bool:
     return any(n.lower() in h for n in needles)
 
 
+
+
+def _known_roles(routing: dict[str, Any]) -> set[str]:
+    roles: set[str] = set()
+    for key in ("default_role", "default_pr_role"):
+        value = routing.get(key)
+        if isinstance(value, str) and value.strip():
+            roles.add(value.strip())
+    for rule_set in ("rules", "pr_rules"):
+        for rule in routing.get(rule_set, []):
+            if isinstance(rule, dict):
+                role = rule.get("role")
+                if isinstance(role, str) and role.strip():
+                    roles.add(role.strip())
+    return roles
+
+
+def _normalize_role(role: str | None, routing: dict[str, Any], *, pr: bool) -> str:
+    candidate = (role or "").strip()
+    known_roles = _known_roles(routing)
+
+    if candidate and (not known_roles or candidate in known_roles):
+        return candidate
+
+    default_key = "default_pr_role" if pr else "default_role"
+    fallback = (routing.get(default_key) or "").strip()
+    if fallback:
+        return fallback
+
+    return "ctrl^core"
+
+
+def _dispatch_ok(rc: int, marker: dict[str, Any] | None) -> bool:
+    return rc == 0 and isinstance(marker, dict) and marker.get("status") == "ok"
+
 def _match_issue_roles(issue: dict[str, Any], routing: dict[str, Any]) -> list[str]:
     labels = {x["name"].lower() for x in issue.get("labels", []) if x.get("name")}
     title = issue.get("title", "")
@@ -196,17 +231,17 @@ def _match_issue_roles(issue: dict[str, Any], routing: dict[str, Any]) -> list[s
 
 def _route_issue(issue: dict[str, Any], routing: dict[str, Any]) -> tuple[str, bool, str]:
     """Return (role, should_auto_execute, routing_reason)."""
-    default_role = routing.get("default_role", "ctrl^core")
+    default_role = _normalize_role(routing.get("default_role"), routing, pr=False)
     matched_roles = _match_issue_roles(issue, routing)
     unique_roles = sorted(set(matched_roles))
 
     if not unique_roles:
-        return default_role, False, "no routing rule matched"
+        return _normalize_role(default_role, routing, pr=False), False, "no routing rule matched"
 
     if len(unique_roles) > 1:
         return default_role, False, f"ambiguous role matches: {', '.join(unique_roles)}"
 
-    chosen_role = unique_roles[0]
+    chosen_role = _normalize_role(unique_roles[0], routing, pr=False)
     if chosen_role == default_role:
         return default_role, False, "matched default triage role"
 
@@ -259,15 +294,15 @@ def _route_pr_feedback(repo: str, pr: dict[str, Any], routing: dict[str, Any]) -
         body_contains = [x.lower() for x in rule.get("body_contains", [])]
 
         if any_labels and labels.intersection(any_labels):
-            return rule["role"]
+            return _normalize_role(rule.get("role"), routing, pr=True)
         if any_paths and any(any(p in fp.lower() for p in any_paths) for fp in file_paths):
-            return rule["role"]
+            return _normalize_role(rule.get("role"), routing, pr=True)
         if title_contains and _contains_any(title, title_contains):
-            return rule["role"]
+            return _normalize_role(rule.get("role"), routing, pr=True)
         if body_contains and _contains_any(body, body_contains):
-            return rule["role"]
+            return _normalize_role(rule.get("role"), routing, pr=True)
 
-    return routing.get("default_pr_role", "ctrl^core")
+    return _normalize_role(routing.get("default_pr_role"), routing, pr=True)
 
 
 def _fingerprint(payload: dict[str, Any], evt: str) -> str:
@@ -645,7 +680,7 @@ class Handler(BaseHTTPRequestHandler):
                 should_auto_execute = False
                 route_reason = "auto-execution disabled by AUTO_EXECUTE_NEW_ISSUES"
 
-            effective_role = role if should_auto_execute else routing.get("default_role", "ctrl^core")
+            effective_role = role if should_auto_execute else _normalize_role(routing.get("default_role"), routing, pr=False)
             marker = None
             result = None
             cmd = ""
@@ -730,6 +765,23 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         rc, out, err, marker = _dispatch_task(task)
+        if not _dispatch_ok(rc, marker):
+            self._respond(
+                HTTPStatus.BAD_GATEWAY,
+                {
+                    "ok": False,
+                    "event": evt,
+                    "action": action,
+                    "followup": task,
+                    "error": "dispatch failed; event left unacknowledged for safe retry",
+                    "dispatch_exit": rc,
+                    "dispatch_marker": marker,
+                    "stdout": out[-600:],
+                    "stderr": err[-600:],
+                },
+            )
+            return
+
         closed, close_reason = _attempt_close_followup(task)
 
         progress = "done" if closed else ("start" if is_new else "update")
