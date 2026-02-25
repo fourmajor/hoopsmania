@@ -18,10 +18,11 @@ checks = []
 reviews = obj.get("required_pull_request_reviews") or {}
 status_checks = obj.get("required_status_checks") or {}
 
-checks.append((reviews.get("required_approving_review_count", 0) >= 1, "required_approving_review_count >= 1"))
+checks.append((reviews.get("required_approving_review_count", -1) == 0, "required_approving_review_count == 0"))
 checks.append((reviews.get("dismiss_stale_reviews") is True, "dismiss_stale_reviews"))
 checks.append((status_checks.get("strict") is True, "required_status_checks.strict"))
 checks.append((len(status_checks.get("contexts") or []) > 0, "required_status_checks contexts set"))
+checks.append((obj.get("required_conversation_resolution") is True, "required_conversation_resolution"))
 
 failed = False
 for ok, label in checks:

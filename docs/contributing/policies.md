@@ -96,6 +96,20 @@ automation/github/create_issue_with_body_file.sh \
 - PRs touching owned paths must receive an approval from a mapped owner (enforced by CI gate).
 - Update `docs/contributing/codeowners.md` when ownership policy/process changes.
 
+## 10) Solo Maintainer Branch Protection Policy
+
+For `main` in solo-maintainer mode:
+
+- Set branch protection `required_approving_review_count=0`.
+- Keep strict required status checks enabled.
+- Keep stale review dismissal enabled.
+- Keep required conversation resolution enabled.
+- Continue process-level review gates:
+  - docdrip reviews non-doc-only PRs for documentation impact.
+  - locktrace reviews non-security-only PRs for security impact.
+
+Rationale: the author cannot self-approve; approvals >0 can deadlock merges. Safety remains enforced through CI + review gates + conversation resolution.
+
 ## Quick Checklist
 
 Before requesting review:

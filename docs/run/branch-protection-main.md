@@ -1,12 +1,13 @@
 # Branch Protection Runbook (`main`)
 
-Issue link: [#57](https://github.com/fourmajor/hoopsmania/issues/57)
+Issue links: [#57](https://github.com/fourmajor/hoopsmania/issues/57), [#106](https://github.com/fourmajor/hoopsmania/issues/106)
 
 This runbook sets and verifies the required protection policy on `main`:
 - Require pull requests before merge (no direct pushes for non-admins)
-- Require at least **1 approving review**
+- Require **0 approving reviews** in solo-maintainer mode
 - Dismiss stale approvals on new commits
 - Require required status checks to pass before merge
+- Require conversation resolution before merge
 
 ## Prerequisites
 
@@ -35,7 +36,7 @@ gh api --method PUT "repos/$OWNER/$REPO/branches/main/protection" \
   -f enforce_admins=false \
   -f required_pull_request_reviews.dismiss_stale_reviews=true \
   -f required_pull_request_reviews.require_code_owner_reviews=false \
-  -f required_pull_request_reviews.required_approving_review_count=1 \
+  -f required_pull_request_reviews.required_approving_review_count=0 \
   -f required_conversation_resolution=true \
   -f restrictions=
 ```
@@ -49,10 +50,11 @@ Run:
 ```
 
 Expected output includes:
-- `required_approving_review_count >= 1: OK`
+- `required_approving_review_count == 0: OK`
 - `dismiss_stale_reviews: OK`
 - `required_status_checks.strict: OK`
 - `required_status_checks contexts set: OK`
+- `required_conversation_resolution: OK`
 
 ## Manual GitHub UI path (if API access is unavailable)
 
@@ -60,11 +62,20 @@ Expected output includes:
 2. Add/edit branch protection rule for `main`.
 3. Enable:
    - Require a pull request before merging
-   - Require approvals (**1**)
+   - Require approvals (**0**) for solo-maintainer mode
    - Dismiss stale pull request approvals when new commits are pushed
    - Require status checks to pass before merging
+   - Require conversation resolution before merging
 4. Select required check(s): `test-and-lint` (or project’s current CI check name).
 5. Save changes.
+
+## Rationale (Solo Maintainer Mode)
+
+- In solo mode, the PR author cannot self-approve. Requiring approvals can deadlock merges.
+- Setting `required_approving_review_count=0` avoids deadlock while preserving safety through:
+  - strict required CI checks,
+  - required conversation resolution,
+  - mandatory process reviews by docdrip (documentation) and locktrace (security) on applicable PRs.
 
 ## Notes
 
