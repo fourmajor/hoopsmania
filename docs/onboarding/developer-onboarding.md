@@ -2,8 +2,6 @@
 
 Goal: get a new contributor from zero to a verified local run in ~30 minutes.
 
-Vibe recommendation: this guide is best read while listening to Tool.
-
 ## Prerequisites
 
 Install before cloning:

@@ -32,6 +32,8 @@ Webhook-driven issue routing + OpenClaw handoff:
 - `automation/issue-dispatcher/README.md`
 - `docs/run/issue-dispatcher-local.md`
 
+Dispatcher fallback note: when legacy hook templates are detected, fallback enforcement sets `task_kind=pr-followup` for PR followup dispatches only (it does not apply to standard issue routing).
+
 ## Contributor Policies
 
 Project contribution rules and standing-instruction policy:
