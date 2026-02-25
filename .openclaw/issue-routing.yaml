@@ -1,0 +1,28 @@
+default_role: cto-triage
+
+rules:
+  - name: docs-label
+    any_labels: [documentation, docs]
+    role: tech-writer
+  - name: backend-label
+    any_labels: [backend, api]
+    role: backend-dev
+  - name: frontend-label
+    any_labels: [frontend, web, ui]
+    role: frontend-dev
+  - name: devops-label
+    any_labels: [devops, infra, ci]
+    role: devops
+
+  - name: docs-title
+    title_contains: ["docs", "readme", "documentation"]
+    role: tech-writer
+  - name: backend-title
+    title_contains: ["backend", "api", "endpoint", "fastapi"]
+    role: backend-dev
+  - name: frontend-title
+    title_contains: ["frontend", "ui", "next.js", "nextjs"]
+    role: frontend-dev
+  - name: devops-title
+    title_contains: ["ci", "cd", "deploy", "docker", "infra"]
+    role: devops
