@@ -21,6 +21,8 @@ This document is a readability guide only. If this file and YAML diverge, the YA
 - Business Strategy Lead (`stratforge`)
 - Marketing (`hypepulse`)
 - Developer Productivity Engineer (`devlane`)
+- Principal Architect (`archon`)
+- Security & Compliance Engineer (`locktrace`)
 
 ## Policy Pointers
 
