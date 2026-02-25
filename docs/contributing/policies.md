@@ -77,7 +77,13 @@ automation/github/create_issue_with_body_file.sh \
   --repo "fourmajor/hoopsmania"
 ```
 
-## 8) Delete Branches After PR Merge
+## 8) Protect `main` Branch
+
+- `main` should require CI status checks, at least one approving review, and stale-approval dismissal.
+- Configure and verify with: `docs/run/branch-protection-main.md`.
+- If settings drift, re-apply using the documented API command and verification script.
+
+## 9) Delete Branches After PR Merge
 
 - Delete the working branch immediately after the PR is merged.
 - Prefer deleting via GitHub's **Delete branch** action on the merged PR.
@@ -94,6 +100,7 @@ Before requesting review:
 - [ ] Multiline PR body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Multiline issue body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Any new standing instruction has been documented.
+- [ ] `main` branch protection settings match the branch-protection runbook.
 
 After merge:
 
