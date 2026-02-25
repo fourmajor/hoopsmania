@@ -31,6 +31,7 @@ This is a bootstrap-quality automation path intended for local persistent runtim
 - Auto-route to owning employee via `pr_rules` heuristics in `.openclaw/issue-routing.yaml`
   - label + file-path + title/body matching
   - fallback: `default_pr_role` (recommended `ctrl^core`)
+  - if a routed role is blank/unknown, normalize to safe fallback (`ctrl^core`)
 - Worker handoff message includes explicit required behavior:
   - post acknowledgement in PR thread
   - push fix commit(s)
@@ -42,6 +43,7 @@ This is a bootstrap-quality automation path intended for local persistent runtim
 - Idempotency protection:
   - delivery-id dedupe (`X-GitHub-Delivery`)
   - payload fingerprint dedupe
+  - deliveries/fingerprints are persisted **only after successful dispatch marker**, so failed handoffs can be safely retried/redelivered
 - Logging:
   - dispatcher log: `.openclaw/state/issue-dispatcher.log`
   - bridge log: `.openclaw/state/dispatch-bridge.log`

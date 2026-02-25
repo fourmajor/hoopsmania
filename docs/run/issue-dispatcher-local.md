@@ -56,6 +56,7 @@ Expected:
 - issue routing response with role + dispatch exit
 - PR feedback response with followup task payload
 - duplicate delivery returns `ignored: duplicate delivery`
+- if downstream dispatch fails, webhook returns retryable failure and does **not** persist dedupe markers yet
 
 Issue auto-execution criteria (new issues):
 - confident route: exactly one non-default role matches routing rules -> auto-exec that employee
@@ -88,3 +89,7 @@ Followup record closes only when both are true:
 2. latest PR checks are green
 
 If either condition is not satisfied or API data unavailable, followup remains open.
+
+Routing fallback safety:
+- PR feedback routing uses `default_pr_role` when no rule matches.
+- If a configured role is blank/unknown, dispatcher normalizes to `ctrl^core`.
