@@ -1,9 +1,14 @@
 # hoopsmania
 
 ```text
-🏀 Hoops Mania
-==============
-Playbooks, runbooks, and automation for an AI-driven basketball sim.
+ _   _  ___   ___  ____   ____    __  __    _    _   _ ___    _   
+| | | |/ _ \ / _ \|  _ \ / ___|  |  \/  |  / \  | \ | |_ _|  / \  
+| |_| | | | | | | | |_) |\___ \  | |\/| | / _ \ |  \| || |  / _ \ 
+|  _  | |_| | |_| |  __/  ___) | | |  | |/ ___ \| |\  || | / ___ \
+|_| |_|\___/ \___/|_|    |____/  |_|  |_/_/   \_\_| \_|___/_/   \_\
+
+                🏀  Playbooks + runbooks + automation
+              for an AI-driven global basketball simulation.
 ```
 
 HoopsMania: AI-driven global basketball simulation game.
