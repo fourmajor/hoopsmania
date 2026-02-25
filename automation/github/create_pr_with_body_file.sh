@@ -78,7 +78,9 @@ if [[ -n "$EXTRA_FILE" && ! -f "$EXTRA_FILE" ]]; then
   exit 2
 fi
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 body_file="$(mktemp -t hoopsmania-pr-body-XXXXXX.md)"
+validator="$script_dir/validate_pr_body.py"
 
 cat > "$body_file" <<EOF
 ## Summary
@@ -99,6 +101,8 @@ if [[ -n "$EXTRA_FILE" ]]; then
     printf '\n'
   } >> "$body_file"
 fi
+
+python3 "$validator" --file "$body_file"
 
 cmd=(gh pr create --title "$TITLE" --body-file "$body_file")
 

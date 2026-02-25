@@ -100,6 +100,7 @@ if kind == "pr-followup":
         "2) Push fix commit(s) for all feedback items.",
         "3) Reply in-thread with addressed commit hash(es).",
         "4) Ensure followup closes only after all review threads are resolved/answered and PR checks are green.",
+        "5) If creating a PR, use --body-file/heredoc file (never inline escaped \\n). Preferred helper: automation/github/create_pr_with_body_file.sh.",
     ]
     if ctx.get("comment_permalinks"):
         lines.append("")
