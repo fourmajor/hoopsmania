@@ -714,6 +714,30 @@ def _attempt_close_followup(task: dict[str, Any]) -> tuple[bool, str]:
     return False, "; ".join(reasons)
 
 
+def _run_hook_command(cmd: str) -> subprocess.CompletedProcess[str]:
+    try:
+        argv = shlex.split(cmd)
+    except ValueError as exc:
+        return subprocess.CompletedProcess(args=cmd, returncode=127, stdout="", stderr=str(exc))
+    if not argv:
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=127,
+            stdout="",
+            stderr="DISPATCH_HOOK_CMD rendered an empty command",
+        )
+    try:
+        return subprocess.run(
+            argv,
+            shell=False,
+            text=True,
+            capture_output=True,
+            timeout=HOOK_TIMEOUT_SEC,
+        )
+    except OSError as exc:
+        return subprocess.CompletedProcess(args=argv, returncode=127, stdout="", stderr=str(exc))
+
+
 def _dispatch_task(task: dict[str, Any]) -> tuple[int, str, str, dict[str, Any] | None]:
     context = {
         "task_id": task["id"],
@@ -738,13 +762,7 @@ def _dispatch_task(task: dict[str, Any]) -> tuple[int, str, str, dict[str, Any] 
             "context_json": json.dumps(context, separators=(",", ":")),
         }
     )
-    result = subprocess.run(
-        cmd,
-        shell=True,
-        text=True,
-        capture_output=True,
-        timeout=HOOK_TIMEOUT_SEC,
-    )
+    result = _run_hook_command(cmd)
     marker = _extract_dispatch_marker(result.stdout)
     return result.returncode, result.stdout, result.stderr, marker
 
@@ -858,13 +876,7 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 }
                 cmd = _render_hook(task)
-                result = subprocess.run(
-                    cmd,
-                    shell=True,
-                    text=True,
-                    capture_output=True,
-                    timeout=HOOK_TIMEOUT_SEC,
-                )
+                result = _run_hook_command(cmd)
                 marker = _extract_dispatch_marker(result.stdout)
 
             marker_line = "- downstream: `not-triggered`"
