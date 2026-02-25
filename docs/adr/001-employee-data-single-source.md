@@ -11,7 +11,7 @@ Employee/team metadata is currently maintained in more than one place (human-fac
 Adopt **one canonical source** for employee data:
 
 - **Canonical file:** `.openclaw/employees.yaml`
-- Do **not** add a markdown generation step for `EMPLOYEES.md`; automation and policy decisions should rely on YAML only.
+- Do **not** add or regenerate a root `EMPLOYEES.md`; automation and policy decisions should rely on YAML only.
 
 ## Why YAML (chosen) vs alternatives
 
@@ -42,14 +42,14 @@ Adopt **one canonical source** for employee data:
 - **CODEOWNERS (optional):** require review from Dev Productivity for canonical schema/file changes.
 
 ## Backward compatibility and deprecation
-- **Phase 1 (compat):** keep `EMPLOYEES.md` as-is for existing links/readability while transitioning automation to YAML.
-- **Phase 2 (deprecate):** add notice in `EMPLOYEES.md` that canonical employee data lives in `.openclaw/employees.yaml`.
-- **Phase 3 (enforce):** reject automation changes that bypass canonical YAML.
+- Root `EMPLOYEES.md` is deleted and should not be reintroduced.
+- Human-readable employee guidance now lives in `docs/contributing/employees.md`.
+- Automation changes must use `.openclaw/employees.yaml` as canonical input.
 
 Implementation status (Issue #89):
 - Canonical YAML implemented.
 - CI validation added.
-- `EMPLOYEES.md` removed.
+- Root employee markdown artifact removed.
 - Human-readable reference moved to `docs/contributing/employees.md`.
 
 ## Non-goals (this proposal PR)

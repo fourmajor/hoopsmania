@@ -13,9 +13,15 @@
 
 HoopsMania: AI-driven global basketball simulation game.
 
+## Developer Onboarding
+
+New contributor? Start with the 30-minute onboarding guide:
+
+- `docs/onboarding/developer-onboarding.md`
+
 ## Run Locally
 
-Start here for local setup and service runbooks:
+Local setup and service runbooks:
 
 - `docs/run/README.md`
 
@@ -25,6 +31,8 @@ Webhook-driven issue routing + OpenClaw handoff:
 
 - `automation/issue-dispatcher/README.md`
 - `docs/run/issue-dispatcher-local.md`
+
+Dispatcher fallback note: when legacy hook templates are detected, fallback enforcement sets `task_kind=pr-followup` for PR followup dispatches only (it does not apply to standard issue routing).
 
 ## Contributor Policies
 
