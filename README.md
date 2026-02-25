@@ -13,9 +13,15 @@
 
 HoopsMania: AI-driven global basketball simulation game.
 
+## Developer Onboarding
+
+New contributor? Start with the 30-minute onboarding guide:
+
+- `docs/onboarding/developer-onboarding.md`
+
 ## Run Locally
 
-Start here for local setup and service runbooks:
+Local setup and service runbooks:
 
 - `docs/run/README.md`
 
