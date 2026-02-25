@@ -73,11 +73,11 @@ SUPPORTED_HOOK_KEYS = {
     "issue_title_q",
     "issue_url_q",
 }
-HOOK_CMD = os.getenv(
-    "DISPATCH_HOOK_CMD",
+DEFAULT_HOOK_CMD = (
     str((Path(__file__).resolve().parent / "dispatch_bridge.sh").resolve())
-    + " {role_q} {repo_q} {task_kind_q} {task_number_q} {task_title_q} {task_url_q} {context_json_q}",
+    + " {role_q} {repo_q} {task_kind_q} {task_number_q} {task_title_q} {task_url_q} {context_json_q}"
 )
+HOOK_CMD = os.getenv("DISPATCH_HOOK_CMD", DEFAULT_HOOK_CMD)
 
 EVENTS_ALLOWED = {"issues", "pull_request_review", "pull_request_review_comment", "issue_comment"}
 ISSUE_ACTIONS_ALLOWED = {"opened", "edited", "labeled", "reopened"}
@@ -375,11 +375,22 @@ def _render_hook(task: dict[str, str]) -> str:
     merged = {**task, **aliases}
 
     quoted = {f"{k}_q": shlex.quote(v) for k, v in merged.items()}
-    fields = {fname for _, fname, _, _ in string.Formatter().parse(HOOK_CMD) if fname}
+
+    template = HOOK_CMD
+    fields = {fname for _, fname, _, _ in string.Formatter().parse(template) if fname}
     unknown = sorted(fields.difference(SUPPORTED_HOOK_KEYS))
     if unknown:
         raise ValueError(f"DISPATCH_HOOK_CMD has unsupported placeholders: {', '.join(unknown)}")
-    return HOOK_CMD.format(**merged, **quoted)
+
+    task_kind = task.get("task_kind", "")
+    has_task_kind_placeholder = "task_kind" in fields or "task_kind_q" in fields
+    if task_kind == "pr-followup" and not has_task_kind_placeholder:
+        logger.warning(
+            "DISPATCH_HOOK_CMD missing task_kind placeholder; forcing default command for PR followups"
+        )
+        template = DEFAULT_HOOK_CMD
+
+    return template.format(**merged, **quoted)
 
 
 def _comment_issue(repo: str, issue_number: int, text: str) -> None:
