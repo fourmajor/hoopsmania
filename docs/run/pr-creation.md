@@ -17,6 +17,7 @@ automation/github/create_pr_with_body_file.sh \
 ```
 
 This helper calls `gh pr create --body-file ...` so newlines are preserved.
+It also runs `automation/github/validate_pr_body.py` and fails fast if literal `\\n` appears in generated body content.
 
 ## Direct `gh` usage (also valid)
 
