@@ -16,6 +16,18 @@ When fourmajor gives a standing instruction (phrases like "in the future", "alwa
 - Keep the instruction concise, actionable, and easy to find.
 - Add or update links from top-level docs (like `README.md`) when discoverability is needed.
 
+## 3) Close Issues When Work Is Done
+
+- If your PR resolves the issue, include `Closes #<issue-number>` in the PR description.
+- After merge, verify the linked issue is closed.
+- If work is complete without a PR, close the issue manually with a short resolution note.
+
+## 4) Delete Branches After PR Merge
+
+- Delete the working branch immediately after the PR is merged.
+- Prefer deleting via GitHub's **Delete branch** action on the merged PR.
+- If a branch must be kept temporarily, document the reason in the PR conversation.
+
 ## Quick Checklist
 
 Before requesting review:
@@ -23,3 +35,8 @@ Before requesting review:
 - [ ] Related issue exists.
 - [ ] PR links the issue (`Closes #...` / `Refs #...`).
 - [ ] Any new standing instruction has been documented.
+
+After merge:
+
+- [ ] Linked issue is closed.
+- [ ] Merged branch is deleted (or exception documented).
