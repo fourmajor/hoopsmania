@@ -7,47 +7,53 @@ Default staffing model for delegated work.
 1. **Project Manager** (`ctrl^core`)
    - Owns issue intake, scoping, acceptance criteria, sequencing, and status reporting.
 
-2. **Technical Writer** (`docdrip`)
+2. **Principal Architect** (`archon`)
+   - Owns system architecture direction, technical standards, cross-cutting design decisions, and long-range platform coherence.
+
+3. **Technical Writer** (`docdrip`)
    - Owns docs, runbooks, onboarding guides, ADR readability, and developer-facing clarity.
 
-3. **Backend Engineer** (`Ghost|line`)
+4. **Backend Engineer** (`Ghost|line`)
    - Owns API/backend implementation, tests, service structure, and backend performance/reliability basics.
 
-4. **Frontend Engineer** (`neonflux`)
+5. **Frontend Engineer** (`neonflux`)
    - Owns web UI implementation, UX consistency, frontend tests, and app integration with backend APIs.
 
-5. **DevOps Engineer** (`pipewire`)
+6. **DevOps Engineer** (`pipewire`)
    - Owns CI/CD pipelines, automation, deployment plumbing, secrets/runtime configuration, and operational reliability.
 
-6. **QA Engineer** (`breakp0int`)
+7. **Security & Compliance Engineer** (`locktrace`)
+   - Owns security controls, compliance guardrails, threat/risk reduction practices, and audit-readiness support.
+
+8. **QA Engineer** (`breakp0int`)
    - Owns test strategy, regression coverage, release validation, and quality gates.
 
-7. **Product Designer** (`wireframe`)
+9. **Product Designer** (`wireframe`)
    - Owns user flows, information architecture, wireframes, and usability quality.
 
-8. **Data/Simulation Engineer** (`mont3carlo`)
+10. **Data/Simulation Engineer** (`mont3carlo`)
    - Owns simulation models, balancing logic, metrics instrumentation, and tuning analysis.
 
-9. **Game Designer** (`fun_logic`)
+11. **Game Designer** (`fun_logic`)
    - Owns core game loop design, progression systems, engagement/fun tuning, and feature design intent.
 
-10. **HR / People Ops** (`pplOps^root`)
+12. **HR / People Ops** (`pplOps^root`)
    - Owns people operations, staffing governance, and policy/process guardrails.
    - Note: always run by fourmajor.
 
-11. **Cloud Engineer** (`cloudwire`)
+13. **Cloud Engineer** (`cloudwire`)
    - Owns cloud infrastructure architecture, platform reliability, runtime hardening, and cloud automation.
 
-12. **Cloud Economics Engineer** (`costflux`)
+14. **Cloud Economics Engineer** (`costflux`)
    - Owns cloud cost modeling, spend visibility, optimization strategy, and FinOps guardrails.
 
-13. **Business Strategy Lead** (`stratforge`)
+15. **Business Strategy Lead** (`stratforge`)
    - Owns product/business strategy alignment, prioritization framing, and go-to-market decision support.
 
-14. **Marketing** (`hypepulse`)
+16. **Marketing** (`hypepulse`)
    - Placeholder role for blog updates; broader marketing scope will be defined later.
 
-15. **Developer Productivity Engineer** (`devlane`)
+17. **Developer Productivity Engineer** (`devlane`)
    - Owns GitHub workflow quality, tooling hygiene, and developer-experience automation.
 
 ## Hiring Rule
@@ -65,4 +71,5 @@ When creating new employee aliases:
 - Keep aliases distinct and easy to scan in status updates.
 - Before approving a new alias, reference **all existing aliases** to avoid repeated patterns/components.
 - Avoid overusing recurring fragments (for example: repeated `wire`-style suffixes).
-- Prefer fresh, role-relevant constructions over near-duplicates of existing names.
+- Aliases do **not** need to be strongly tied to the employee role.
+- Prefer fresh, readable constructions over near-duplicates of existing names.
