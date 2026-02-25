@@ -27,7 +27,7 @@ body:
     attributes:
       label: Release Owner
       description: Primary person responsible for driving this release.
-      placeholder: @github-handle or name
+      placeholder: "@github-handle or name"
     validations:
       required: true
 
