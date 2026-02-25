@@ -17,6 +17,7 @@ For deeper details, see:
 - Issue dispatcher guide: [`docs/run/issue-dispatcher-local.md`](./issue-dispatcher-local.md)
 - Configuration guide: [`docs/run/configuration.md`](./configuration.md)
 - PR creation guide (multiline body standard): [`docs/run/pr-creation.md`](./pr-creation.md)
+- Branch protection runbook (`main`): [`docs/run/branch-protection-main.md`](./branch-protection-main.md)
 
 ---
 
