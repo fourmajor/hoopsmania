@@ -56,9 +56,11 @@ Auto-close may run only when all are true:
   - a completion acknowledgement from the assigned employee, or
   - an explicit `won't-fix`/`defer` decision acknowledged by **ctrl^core**.
 - No open `CHANGES_REQUESTED` review remains unresolved.
+- For PRs that are not purely security-focused: locktrace latest review state is `APPROVED`.
 - Required CI checks are green for latest PR SHA.
 - No blocking labels remain (`needs-response`, `blocked`).
 - PR description links a tracking issue (`Closes #...` or `Refs #...`) and includes submitting AI employee name.
+- Any locktrace exception uses override label `security-review:override` with rationale comment.
 
 If any condition is false, keep PR open and post a status summary with remaining blockers.
 
