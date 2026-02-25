@@ -31,3 +31,5 @@ Webhook-driven issue routing + OpenClaw handoff:
 Project contribution rules and standing-instruction policy:
 
 - `docs/contributing/policies.md`
+
+PR reminder: include `AI Employee: <name>` near the top of every PR description.
