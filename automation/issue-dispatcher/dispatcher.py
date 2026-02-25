@@ -83,14 +83,12 @@ EVENTS_ALLOWED = {"issues", "pull_request_review", "pull_request_review_comment"
 ISSUE_ACTIONS_ALLOWED = {"opened", "edited", "labeled", "reopened"}
 FEEDBACK_ACTIONS_ALLOWED = {"created", "edited", "submitted"}
 
-DUPLICATE_SUPPRESS_WINDOW_SEC = int(os.getenv("DUPLICATE_SUPPRESS_WINDOW_SEC", "21600"))
-MAX_CURSOR_HISTORY = int(os.getenv("MAX_CURSOR_HISTORY", "200"))
-
 REQUIRED_ACTION_CHECKLIST = [
     "Post acknowledgement in the PR thread.",
     "Push fix commit(s) that address each feedback item.",
     "Reply in-thread with addressed commit hash(es).",
 ]
+MAX_CURSOR_HISTORY = 500
 
 logger = logging.getLogger("issue-dispatcher")
 
@@ -113,18 +111,17 @@ def _setup_logging() -> None:
 
 def _load_state() -> dict[str, Any]:
     if not STATE_FILE.exists():
-        return {"deliveries": {}, "fingerprints": {}, "dispatch_suppress": {}}
+        return {"deliveries": {}, "fingerprints": {}}
     try:
         raw = json.loads(STATE_FILE.read_text())
         if "deliveries" in raw or "fingerprints" in raw:
             return {
                 "deliveries": raw.get("deliveries", {}),
                 "fingerprints": raw.get("fingerprints", {}),
-                "dispatch_suppress": raw.get("dispatch_suppress", {}),
             }
-        return {"deliveries": raw, "fingerprints": {}, "dispatch_suppress": {}}
+        return {"deliveries": raw, "fingerprints": {}}
     except Exception:
-        return {"deliveries": {}, "fingerprints": {}, "dispatch_suppress": {}}
+        return {"deliveries": {}, "fingerprints": {}}
 
 
 def _save_state(state: dict[str, Any]) -> None:
@@ -312,42 +309,24 @@ def _route_pr_feedback(repo: str, pr: dict[str, Any], routing: dict[str, Any]) -
 def _feedback_cursor(payload: dict[str, Any], evt: str) -> str:
     repo = payload.get("repository", {}).get("full_name", "")
     action = payload.get("action", "")
+    pr = payload.get("pull_request", {}) or payload.get("issue", {})
+    pr_number = pr.get("number", "")
+
     if evt == "pull_request_review":
         review = payload.get("review", {})
-        pr = payload.get("pull_request", {})
-        return f"{evt}:{repo}:{pr.get('number','')}:{review.get('id','')}:{action}"
-    if evt == "pull_request_review_comment":
-        comment = payload.get("comment", {})
-        pr = payload.get("pull_request", {})
-        return f"{evt}:{repo}:{pr.get('number','')}:{comment.get('id','')}:{action}"
-    if evt == "issue_comment":
-        issue = payload.get("issue", {})
-        comment = payload.get("comment", {})
-        return f"{evt}:{repo}:{issue.get('number','')}:{comment.get('id','')}:{action}"
-    return ""
+        review_id = review.get("id")
+        if review_id is not None:
+            return f"{evt}:{repo}:{pr_number}:{action}:review:{review_id}"
+        return f"{evt}:{repo}:{pr_number}:{action}:{review.get('submitted_at', '')}"
 
+    comment = payload.get("comment", {})
+    comment_id = comment.get("id")
+    if comment_id is not None:
+        return f"{evt}:{repo}:{pr_number}:{action}:comment:{comment_id}"
 
-def _pr_dispatch_suppressed(state: dict[str, Any], cursor: str, now_ts: int | None = None) -> bool:
-    if not cursor:
-        return False
-    suppress = state.get("dispatch_suppress", {})
-    last = suppress.get(cursor)
-    if not isinstance(last, int):
-        return False
-    now_ts = int(datetime.now(UTC).timestamp()) if now_ts is None else now_ts
-    return now_ts - last < DUPLICATE_SUPPRESS_WINDOW_SEC
-
-
-def _mark_pr_dispatch(state: dict[str, Any], cursor: str, now_ts: int | None = None) -> None:
-    if not cursor:
-        return
-    now_ts = int(datetime.now(UTC).timestamp()) if now_ts is None else now_ts
-    suppress = state.setdefault("dispatch_suppress", {})
-    suppress[cursor] = now_ts
-    cutoff = now_ts - DUPLICATE_SUPPRESS_WINDOW_SEC
-    for key, ts in list(suppress.items()):
-        if isinstance(ts, int) and ts < cutoff:
-            suppress.pop(key, None)
+    updated_at = comment.get("updated_at") or comment.get("created_at") or pr.get("updated_at", "")
+    permalink = payload.get("review", {}).get("html_url") or comment.get("html_url", "")
+    return f"{evt}:{repo}:{pr_number}:{action}:{updated_at}:{permalink}"
 
 
 def _fingerprint(payload: dict[str, Any], evt: str) -> str:
@@ -358,10 +337,7 @@ def _fingerprint(payload: dict[str, Any], evt: str) -> str:
         updated_at = issue.get("updated_at", "")
         raw = f"{evt}:{repo}:{issue.get('number')}:{action}:{updated_at}"
     else:
-        pr = payload.get("pull_request", {}) or payload.get("issue", {})
-        pr_number = pr.get("number", "")
-        cursor = _feedback_cursor(payload, evt)
-        raw = cursor or f"{evt}:{repo}:{pr_number}:{action}"
+        raw = _feedback_cursor(payload, evt)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -503,7 +479,7 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
         }
         is_new = True
 
-    # Backfill/migrate legacy task records so older schema entries don't crash updates.
+    # Backfill/migrate legacy records.
     task.setdefault("id", key)
     task.setdefault("repo", feedback["repo"])
     task.setdefault("pr_number", feedback["pr_number"])
@@ -515,7 +491,6 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
     if not isinstance(task.get("events"), list):
         task["events"] = []
 
-    # Always keep routing fresh + reopen on new feedback.
     task["role"] = _normalize_role(routed_role, routing, pr=True)
     if not isinstance(task.get("processed_event_cursors"), list):
         task["processed_event_cursors"] = []
@@ -527,6 +502,7 @@ def _create_or_update_followup(payload: dict[str, Any], evt: str, routing: dict[
         if len(task["processed_event_cursors"]) > MAX_CURSOR_HISTORY:
             task["processed_event_cursors"] = task["processed_event_cursors"][-MAX_CURSOR_HISTORY:]
 
+    # New feedback should always reopen followup.
     task["status"] = "open"
     task["closed_at"] = None
     if not is_duplicate_event:
@@ -641,15 +617,13 @@ def _attempt_close_followup(task: dict[str, Any]) -> tuple[bool, str]:
 
 def _dispatch_task(task: dict[str, Any]) -> tuple[int, str, str, dict[str, Any] | None]:
     context = {
-        "task_id": f"{task['id']}:{int(task.get('event_sequence', 0))}",
+        "task_id": task["id"],
         "repo": task["repo"],
         "pr_number": task["pr_number"],
         "pr_url": task["pr_url"],
         "comment_permalinks": task.get("comment_permalinks", []),
         "required_action_checklist": task.get("required_action_checklist", []),
         "closure_gate": "Close only when all review threads are resolved/answered and checks are green.",
-        "event_cursor": task.get("active_event_cursor", ""),
-        "event_sequence": int(task.get("event_sequence", 0)),
     }
     cmd = _render_hook(
         {
@@ -842,21 +816,6 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return
 
-        event_cursor = task.get("active_event_cursor", "")
-        if _pr_dispatch_suppressed(state, event_cursor):
-            self._respond(
-                HTTPStatus.OK,
-                {
-                    "ok": True,
-                    "event": evt,
-                    "action": action,
-                    "followup": task,
-                    "suppressed_duplicate_dispatch": True,
-                    "event_cursor": event_cursor,
-                },
-            )
-            return
-
         rc, out, err, marker = _dispatch_task(task)
         if not _dispatch_ok(rc, marker):
             self._respond(
@@ -874,8 +833,6 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
-
-        _mark_pr_dispatch(state, event_cursor)
 
         closed, close_reason = _attempt_close_followup(task)
 
