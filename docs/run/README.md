@@ -7,6 +7,7 @@ As frontend/services are added, extend this same runbook pattern.
 
 For deeper details, see:
 - Backend guide: [`docs/run/backend-local.md`](./backend-local.md)
+- Issue dispatcher guide: [`docs/run/issue-dispatcher-local.md`](./issue-dispatcher-local.md)
 - Configuration guide: [`docs/run/configuration.md`](./configuration.md)
 
 ---

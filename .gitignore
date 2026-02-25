@@ -211,3 +211,7 @@ node_modules/
 .next/
 dist/
 .env
+
+# OpenClaw local runtime state
+.openclaw/state/
+automation/issue-dispatcher/.env
