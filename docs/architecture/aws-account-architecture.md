@@ -107,7 +107,35 @@ Isolation principle: **account boundary is the strongest default security and bl
 
 ---
 
-## 6) Secrets, Observability, Backup/DR, Cost Controls
+## 6) Infrastructure as Code (IaC) Baseline
+
+Treat **all foundation and workload infrastructure as code** (accounts, IAM/Identity Center assignments, SCPs, networking, CI roles, logging, backup policies).
+
+### IaC tool options considered
+
+1. **AWS CDK (preferred)**
+   - Pros: strong AWS service coverage, high-level constructs, native TypeScript/Python workflows, easier policy composition and reuse
+   - Cons: requires discipline to review synthesized CloudFormation output
+
+2. **Terraform (HCL)**
+   - Pros: multi-cloud portability, large ecosystem, familiar in many teams
+   - Cons: extra provider/state management overhead for a mostly AWS-native stack
+
+3. **Raw CloudFormation**
+   - Pros: fully native, no additional framework abstraction
+   - Cons: lower developer ergonomics and more verbose templates for complex stacks
+
+### Decision
+
+Use **AWS CDK as the default IaC framework** for Hoops Mania, with these controls:
+- Source all infra from version-controlled repositories (no ad-hoc console-only resources except emergency break-glass actions).
+- Enforce `cdk diff` + PR review before apply.
+- Use environment/account-specific stacks for Dev vs Prod, with least-privilege deploy roles per account.
+- Periodically detect and reconcile drift against declared stacks.
+
+---
+
+## 7) Secrets, Observability, Backup/DR, Cost Controls
 
 ## Secrets
 
@@ -138,7 +166,7 @@ Isolation principle: **account boundary is the strongest default security and bl
 
 ---
 
-## 7) Phased Rollout Plan
+## 8) Phased Rollout Plan
 
 ### Phase 0 (Week 0-1): Foundation
 - Create AWS Organization + 4 baseline accounts
@@ -163,7 +191,7 @@ Isolation principle: **account boundary is the strongest default security and bl
 
 ---
 
-## 8) Decision Log (Alternatives Considered)
+## 9) Decision Log (Alternatives Considered)
 
 1. **Single account for everything**
    - Pros: simplest setup
@@ -184,13 +212,13 @@ Isolation principle: **account boundary is the strongest default security and bl
 
 ---
 
-## 9) Approval Ask
+## 10) Approval Ask
 
 Approve the **4-account baseline now** with **Dev + Prod runtime model**, and defer dedicated **Staging** account until defined growth/compliance triggers are met.
 
 ---
 
-## 10) Operational Readiness Guardrails (Recommended Additions)
+## 11) Operational Readiness Guardrails (Recommended Additions)
 
 To keep rollout practical and auditable, adopt these minimum controls alongside the 4-account decision:
 
