@@ -173,3 +173,46 @@ Isolation principle: **account boundary is the strongest default security and bl
 ## 9) Approval Ask
 
 Approve the **4-account baseline now** with **Dev + Prod runtime model**, and defer dedicated **Staging** account until defined growth/compliance triggers are met.
+
+---
+
+## 10) Operational Readiness Guardrails (Recommended Additions)
+
+To keep rollout practical and auditable, adopt these minimum controls alongside the 4-account decision:
+
+### Account boundary controls
+
+- Keep **Security/Log Archive** account read-only from workload accounts (no workload deploy roles trusted into Security).
+- Maintain a dedicated **break-glass admin role** in Management account with MFA, hardware-key requirement, and emergency-only runbook use.
+- Add explicit deny on cross-account `iam:PassRole` except approved CI/CD deploy roles.
+
+### CI/CD trust hardening
+
+- For GitHub OIDC trust policies, require at minimum:
+  - repository allowlist (`token.actions.githubusercontent.com:sub`)
+  - expected audience (`sts.amazonaws.com`)
+  - branch/environment binding (`refs/heads/main` for prod)
+- Separate infra and app deployment roles in Prod so app pipelines cannot mutate org/security controls.
+
+### Network isolation baseline
+
+- Default deny inbound via security groups/NACLs; expose only through approved edge services.
+- Prefer VPC endpoints (PrivateLink/Gateway endpoints) for AWS service access to reduce internet egress.
+- Record and review any approved Dev↔Prod connectivity exceptions quarterly.
+
+### Observability + DR verification
+
+- Define service-level alert thresholds (e.g., p95 latency, 5xx, queue depth) and route to on-call.
+- Enable immutable log retention policy in Security/Log Archive and test log access during incident drills.
+- Run **quarterly backup restore tests** and at least **one game-day failover simulation per half** for Tier 1 systems.
+
+### Rollout realism / exit criteria
+
+- Phase exit gates should require:
+  - successful least-privilege validation of deploy roles
+  - passing backup restore test for at least one Tier 1 data store
+  - dashboard + alert coverage for critical services
+  - documented rollback rehearsal evidence
+
+These additions keep the proposal lightweight while making security, resilience, and rollout readiness enforceable in practice.
+
