@@ -46,6 +46,9 @@ FORCE_TRIAGE_LABEL = os.getenv("FORCE_TRIAGE_LABEL", "dispatch:triage").strip().
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 GH_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GH_API = os.getenv("GITHUB_API_URL", "https://api.github.com")
+WEBHOOK_ID = os.getenv("GITHUB_WEBHOOK_ID", "").strip()
+FAILED_DELIVERY_LOOKBACK_HOURS = int(os.getenv("FAILED_DELIVERY_LOOKBACK_HOURS", "24"))
+MAX_FAILED_DELIVERY_REPLAYS = int(os.getenv("MAX_FAILED_DELIVERY_REPLAYS", "25"))
 
 # Hook command template placeholders:
 # {role} {repo} {task_kind} {task_number} {task_title} {task_url} {context_json}
@@ -273,17 +276,82 @@ def _route_issue(issue: dict[str, Any], routing: dict[str, Any]) -> tuple[str, b
     return chosen_role, True, "single confident role match"
 
 
-def _gh_api_json(path: str) -> dict[str, Any] | list[Any] | None:
+def _gh_api_request_json(path: str, method: str = "GET", body: dict[str, Any] | None = None) -> dict[str, Any] | list[Any] | None:
     if not GH_TOKEN:
         return None
-    req = request.Request(f"{GH_API}{path}", method="GET")
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = request.Request(f"{GH_API}{path}", data=data, method=method)
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("Authorization", f"Bearer {GH_TOKEN}")
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
     try:
-        with request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        with request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
     except Exception:
         return None
+
+
+def _gh_api_json(path: str) -> dict[str, Any] | list[Any] | None:
+    return _gh_api_request_json(path, method="GET")
+
+
+def _gh_redeliver_webhook(repo: str, delivery_id: int) -> bool:
+    response = _gh_api_request_json(
+        f"/repos/{repo}/hooks/{WEBHOOK_ID}/deliveries/{delivery_id}/attempts",
+        method="POST",
+        body={},
+    )
+    return response is not None
+
+
+def _select_failed_deliveries_for_replay(deliveries: list[dict[str, Any]]) -> list[int]:
+    cutoff = datetime.now(UTC).timestamp() - (max(1, FAILED_DELIVERY_LOOKBACK_HOURS) * 3600)
+    selected: list[int] = []
+    for delivery in deliveries:
+        event = delivery.get("event", "")
+        status_code = int(delivery.get("status_code", 0) or 0)
+        redelivery = bool(delivery.get("redelivery", False))
+        delivered_at = delivery.get("delivered_at", "")
+
+        if event not in EVENTS_ALLOWED:
+            continue
+        if status_code == 200:
+            continue
+        if redelivery:
+            continue
+
+        try:
+            ts = datetime.fromisoformat(delivered_at.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            ts = 0
+        if ts < cutoff:
+            continue
+
+        delivery_id = delivery.get("id")
+        if isinstance(delivery_id, int):
+            selected.append(delivery_id)
+
+    selected.sort()
+    if MAX_FAILED_DELIVERY_REPLAYS > 0:
+        return selected[-MAX_FAILED_DELIVERY_REPLAYS:]
+    return selected
+
+
+def replay_failed_deliveries(repo: str) -> dict[str, Any]:
+    if not WEBHOOK_ID:
+        return {"ok": False, "error": "GITHUB_WEBHOOK_ID missing", "replayed": []}
+    deliveries = _gh_api_json(f"/repos/{repo}/hooks/{WEBHOOK_ID}/deliveries")
+    if not isinstance(deliveries, list):
+        return {"ok": False, "error": "failed to fetch deliveries", "replayed": []}
+
+    replay_ids = _select_failed_deliveries_for_replay(deliveries)
+    replayed: list[int] = []
+    for delivery_id in replay_ids:
+        if _gh_redeliver_webhook(repo, delivery_id):
+            replayed.append(delivery_id)
+    return {"ok": True, "replayed": replayed, "candidate_count": len(replay_ids)}
 
 
 def _gh_graphql(query: str, variables: dict[str, Any]) -> dict[str, Any] | None:
