@@ -227,6 +227,30 @@ python verify_webhook_events.py --repo fourmajor/hoopsmania --hook-id <HOOK_ID> 
 
 ---
 
+## Webhook ingress monitoring + alerting (new)
+
+To detect webhook ingress regressions (503/502/5xx) proactively:
+
+- Script: `automation/issue-dispatcher/check_webhook_ingress.py`
+- Workflow: `.github/workflows/webhook-ingress-monitor.yml`
+- Schedule: every 10 minutes
+- Alert path: posts an attributed alert comment (`AI Employee: pipewire`) to issue #133 when 5xx deliveries are detected in the 20-minute lookback window.
+
+Manual run:
+
+```bash
+python automation/issue-dispatcher/check_webhook_ingress.py \
+  --repo fourmajor/hoopsmania \
+  --hook-id 597870527 \
+  --lookback-minutes 20 \
+  --alert-issue 133
+```
+
+Exit code semantics:
+- `0`: no 5xx ingress failures detected in lookback window
+- `1`: failures detected (alert posted when `--alert-issue` is set)
+- `2`: monitor execution/config error
+
 ## What is still manual
 
 - Maintaining role mapping env vars (`OPENCLAW_SESSION_*` / `OPENCLAW_AGENT_*`)

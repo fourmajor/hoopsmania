@@ -1,0 +1,32 @@
+name: webhook-ingress-monitor
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check webhook ingress health
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python automation/issue-dispatcher/check_webhook_ingress.py \
+            --repo fourmajor/hoopsmania \
+            --hook-id 597870527 \
+            --lookback-minutes 20 \
+            --alert-issue 133
