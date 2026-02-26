@@ -78,6 +78,8 @@ Edit `.env` with real values (do not commit `.env`).
 
 - `GITHUB_TOKEN` (required for PR file heuristics + closure gate + comments)
 - `OPENCLAW_SESSION_<ROLE_KEY>` mappings for persistent employee sessions
+- `GITHUB_WEBHOOK_ID` (required for automated replay of failed webhook deliveries)
+- `FAILED_DELIVERY_LOOKBACK_HOURS` + `MAX_FAILED_DELIVERY_REPLAYS` for replay safety bounds
 
 ### Auto-execution controls
 
@@ -205,6 +207,24 @@ cd automation/issue-dispatcher
 
 5. For live tests, use GitHub webhook **Recent Deliveries -> Redeliver**.
 
+## Replay failed webhook deliveries (recovery path)
+
+When webhook ingress is briefly down (e.g., tunnel outage), GitHub may return `503` and feedback events never reach the dispatcher. Recover with replay:
+
+```bash
+cd automation/issue-dispatcher
+export GITHUB_TOKEN=<repo-admin-token>
+export GITHUB_WEBHOOK_ID=<numeric-hook-id>
+python replay_failed_deliveries.py --repo fourmajor/hoopsmania
+```
+
+Safety filters:
+- event must be one of dispatcher-supported events
+- non-200 deliveries only
+- skips already-redelivered attempts
+- lookback window via `FAILED_DELIVERY_LOOKBACK_HOURS`
+- cap via `MAX_FAILED_DELIVERY_REPLAYS`
+
 ## Verify webhook subscriptions (important)
 
 PR feedback automation requires these webhook events on the repository hook:
@@ -225,6 +245,30 @@ python verify_webhook_events.py --repo fourmajor/hoopsmania --hook-id <HOOK_ID> 
 ```
 
 ---
+
+## Webhook ingress monitoring + alerting (new)
+
+To detect webhook ingress regressions (503/502/5xx) proactively:
+
+- Script: `automation/issue-dispatcher/check_webhook_ingress.py`
+- Workflow: `.github/workflows/webhook-ingress-monitor.yml`
+- Schedule: every 10 minutes
+- Alert path: posts an attributed alert comment (`AI Employee: pipewire`) to issue #133 when 5xx deliveries are detected in the 20-minute lookback window.
+
+Manual run:
+
+```bash
+python automation/issue-dispatcher/check_webhook_ingress.py \
+  --repo fourmajor/hoopsmania \
+  --hook-id 597870527 \
+  --lookback-minutes 20 \
+  --alert-issue 133
+```
+
+Exit code semantics:
+- `0`: no 5xx ingress failures detected in lookback window
+- `1`: failures detected (alert posted when `--alert-issue` is set)
+- `2`: monitor execution/config error
 
 ## What is still manual
 
