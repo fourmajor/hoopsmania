@@ -15,6 +15,7 @@ This is a bootstrap-quality automation path intended for local persistent runtim
   - if routing has a **single non-default role match**, the owning employee is auto-executed immediately
   - if low confidence (no match / ambiguous multi-role match), dispatcher falls back to `default_role` (recommended `ctrl^core`) for triage
 - Dispatcher issue comments include `AI Employee: <name>` and use start/update/done progress wording
+- Human-owned issues: if label `human-owned` (or configured `HUMAN_OWNED_LABEL`) is present, dispatcher ignores auto-execution/handoff and logs/comments that the issue was ignored as human-owned
 
 ### PR feedback auto-addressing (new)
 - Trigger events:
@@ -88,6 +89,8 @@ Edit `.env` with real values (do not commit `.env`).
   - `0`: allow confident non-opened issue events to auto-execute too
 - `FORCE_TRIAGE_LABEL=<label>` (default `dispatch:triage`)
   - if present on an issue, force fallback to `default_role` triage even when role matching is confident
+- `HUMAN_OWNED_LABEL=<label>` (default `human-owned`)
+  - if present on an issue, dispatcher does not auto-execute or hand off the issue; it records an explicit "ignored: human-owned" reason in logs/comments/API response
 
 ### Security review gate controls
 
@@ -162,6 +165,22 @@ Each task is keyed by `<repo>#<pr_number>` and includes:
 - `closed_at` when closure gate passes
 
 ---
+
+## Human-owned issue usage example
+
+```bash
+# Create issue that automation must not execute
+gh issue create --repo fourmajor/hoopsmania \
+  --title "Manual migration plan" \
+  --body "Owned by a human. Do not auto-dispatch." \
+  --label human-owned
+```
+
+Expected dispatcher behavior:
+- `auto_executed=false`
+- `human_owned=true`
+- routing reason includes: `ignored: human-owned label 'human-owned' present`
+- issue comment explicitly records human-owned skip
 
 ## Verification steps
 

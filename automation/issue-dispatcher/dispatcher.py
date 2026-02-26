@@ -42,6 +42,7 @@ HOOK_TIMEOUT_SEC = int(os.getenv("DISPATCH_HOOK_TIMEOUT_SEC", "45"))
 AUTO_EXECUTE_NEW_ISSUES = os.getenv("AUTO_EXECUTE_NEW_ISSUES", "1").lower() not in {"0", "false", "no"}
 AUTO_EXECUTE_ONLY_ON_OPENED = os.getenv("AUTO_EXECUTE_ONLY_ON_OPENED", "1").lower() not in {"0", "false", "no"}
 FORCE_TRIAGE_LABEL = os.getenv("FORCE_TRIAGE_LABEL", "dispatch:triage").strip().lower()
+HUMAN_OWNED_LABEL = os.getenv("HUMAN_OWNED_LABEL", "human-owned").strip().lower()
 
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 GH_TOKEN = os.getenv("GITHUB_TOKEN", "")
@@ -252,6 +253,14 @@ def _match_issue_roles(issue: dict[str, Any], routing: dict[str, Any]) -> list[s
             continue
 
     return matched_roles
+
+
+def _is_human_owned(labels: set[str]) -> bool:
+    return bool(HUMAN_OWNED_LABEL and HUMAN_OWNED_LABEL in labels)
+
+
+def _issue_dispatch_decision(action: str, should_auto_execute: bool, human_owned: bool) -> bool:
+    return (action == "opened" or should_auto_execute) and not human_owned
 
 
 def _route_issue(issue: dict[str, Any], routing: dict[str, Any]) -> tuple[str, bool, str]:
@@ -844,6 +853,7 @@ class Handler(BaseHTTPRequestHandler):
                 route_reason = f"forced triage via label `{FORCE_TRIAGE_LABEL}`"
 
             should_auto_execute = confident
+            human_owned = _is_human_owned(labels)
             if AUTO_EXECUTE_ONLY_ON_OPENED and action != "opened":
                 should_auto_execute = False
                 if route_reason == "single confident role match":
@@ -851,13 +861,25 @@ class Handler(BaseHTTPRequestHandler):
             if not AUTO_EXECUTE_NEW_ISSUES:
                 should_auto_execute = False
                 route_reason = "auto-execution disabled by AUTO_EXECUTE_NEW_ISSUES"
+            if human_owned:
+                should_auto_execute = False
+                route_reason = f"ignored: human-owned label `{HUMAN_OWNED_LABEL}` present"
 
             effective_role = role if should_auto_execute else _normalize_role(routing.get("default_role"), routing, pr=False)
             marker = None
             result = None
             cmd = ""
 
-            if action == "opened" or should_auto_execute:
+            should_dispatch = _issue_dispatch_decision(action, should_auto_execute, human_owned)
+            if human_owned:
+                logger.info(
+                    "issue ignored for dispatch: repo=%s issue=%s label=%s action=%s",
+                    repo,
+                    issue.get("number"),
+                    HUMAN_OWNED_LABEL,
+                    action,
+                )
+            if should_dispatch:
                 task = {
                     "role": effective_role,
                     "repo": repo,
@@ -871,6 +893,7 @@ class Handler(BaseHTTPRequestHandler):
                             "route_reason": route_reason,
                             "route_confident": confident,
                             "auto_executed": should_auto_execute,
+                            "human_owned": human_owned,
                         },
                         separators=(",", ":"),
                     ),
@@ -898,6 +921,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"- action: `{action}`\n"
                 f"- routing: `{route_reason}`\n"
                 f"- auto-executed: `{str(should_auto_execute).lower()}`\n"
+                f"- human-owned: `{str(human_owned).lower()}`\n"
                 f"- dispatcher exit: `{dispatch_exit}`\n"
                 f"{marker_line}\n"
             )
@@ -915,6 +939,7 @@ class Handler(BaseHTTPRequestHandler):
                 "role": effective_role,
                 "routing_reason": route_reason,
                 "auto_executed": should_auto_execute,
+                "human_owned": human_owned,
                 "command": cmd,
                 "exit": result.returncode if result else None,
                 "stdout": (result.stdout[-1000:] if result else ""),

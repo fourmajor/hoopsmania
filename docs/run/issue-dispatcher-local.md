@@ -21,6 +21,7 @@ Edit `.env`:
   - `AUTO_EXECUTE_NEW_ISSUES=1` (default)
   - `AUTO_EXECUTE_ONLY_ON_OPENED=1` (default)
   - `FORCE_TRIAGE_LABEL=dispatch:triage` (default)
+  - `HUMAN_OWNED_LABEL=human-owned` (default)
 - security-gate controls:
   - `LOCKTRACE_GITHUB_LOGIN=locktrace` (default)
   - `LOCKTRACE_OVERRIDE_LABEL=security-review:override` (default)
@@ -65,6 +66,7 @@ Issue auto-execution criteria (new issues):
 - confident route: exactly one non-default role matches routing rules -> auto-exec that employee
 - low confidence: no role match OR multi-role ambiguity -> fallback to `default_role` triage (`ctrl^core`)
 - override: if issue has label from `FORCE_TRIAGE_LABEL` (default `dispatch:triage`), force triage fallback
+- human-owned guardrail: if issue has label from `HUMAN_OWNED_LABEL` (default `human-owned`), dispatcher skips auto-exec/handoff entirely and records `ignored: human-owned ...` in logs/comments
 
 ## 5) Check state + logs
 
