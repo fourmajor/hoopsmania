@@ -21,6 +21,21 @@
 - [ ] Relevant CI checks passed
 - Evidence (commands, screenshots, logs, links):
 
+## Docdrip Review Note (required for non-doc PRs)
+Paste this in an APPROVED review when documentation review is complete:
+
+```md
+AI Employee: docdrip
+Doc Impact: updated
+```
+
+or
+
+```md
+AI Employee: docdrip
+Doc Impact: none
+```
+
 ## Checklist
 - [ ] Linked issue included
 - [ ] Summary of change completed

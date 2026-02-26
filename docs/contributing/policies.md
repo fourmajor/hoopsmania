@@ -123,6 +123,16 @@ Rationale: the author cannot self-approve; approvals >0 can deadlock merges. Saf
 - If locktrace requests changes, follow-up work must route back to the owning engineer automatically.
 - Exception path: apply `security-review:override` label and include rationale in PR comments.
 
+## 14) Mandatory docdrip Documentation Review for Non-Doc PRs
+
+- Any PR that is **not doc-only** must receive docdrip documentation review before merge.
+- Doc-only classification: every changed file is documentation (`docs/**`, `*.md`, `*.mdx`, `*.rst`, `*.txt`).
+- Non-doc PRs must include an **APPROVED** review containing:
+  - `AI Employee: docdrip`
+  - `Doc Impact: updated` **or** `Doc Impact: none`
+- If `Doc Impact: updated` is declared, the PR must include documentation file changes in the same branch before merge.
+- This gate is enforced by CI workflow `.github/workflows/codeowner-review-gate.yml` for auditability.
+
 ## Quick Checklist
 
 Before requesting review:
@@ -135,6 +145,7 @@ Before requesting review:
 - [ ] Multiline issue body was created via `--body-file` (or heredoc file), not escaped `\\n` text.
 - [ ] Any new standing instruction has been documented.
 - [ ] `main` branch protection settings match the branch-protection runbook.
+- [ ] Non-doc PRs include docdrip review approval with `AI Employee: docdrip` and `Doc Impact: ...`.
 - [ ] Non-security PRs include locktrace review approval (or documented `security-review:override` exception).
 
 After merge:

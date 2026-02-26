@@ -1,4 +1,4 @@
-name: Codeowner Review Gate
+name: Codeowner + Docdrip Review Gate
 
 on:
   pull_request_target:
@@ -11,11 +11,11 @@ permissions:
   pull-requests: read
 
 jobs:
-  require-codeowner-approval:
+  require-reviews:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - name: Enforce codeowner approval for owned paths
+      - name: Enforce codeowner and docdrip approvals
         uses: actions/github-script@v8
         with:
           script: |
@@ -38,6 +38,13 @@ jobs:
               { prefix: '.github/', owners: ['fourmajor'] },
             ];
 
+            const isDocPath = (filename) =>
+              filename.startsWith('docs/') ||
+              filename.endsWith('.md') ||
+              filename.endsWith('.mdx') ||
+              filename.endsWith('.rst') ||
+              filename.endsWith('.txt');
+
             const files = await github.paginate(
               github.rest.pulls.listFiles,
               { owner, repo, pull_number: number, per_page: 100 }
@@ -45,6 +52,14 @@ jobs:
 
             const changed = files.map(f => f.filename);
             core.info(`Changed files: ${changed.join(', ') || '(none)'}`);
+
+            const nonDocChanged = changed.filter((f) => !isDocPath(f));
+            const docsChanged = changed.filter((f) => isDocPath(f));
+            const docOnlyPr = changed.length > 0 && nonDocChanged.length === 0;
+
+            core.info(`Doc-only PR: ${docOnlyPr}`);
+            core.info(`Non-doc files: ${nonDocChanged.join(', ') || '(none)'}`);
+            core.info(`Doc files: ${docsChanged.join(', ') || '(none)'}`);
 
             const requiredOwners = new Set();
             for (const file of changed) {
@@ -55,17 +70,12 @@ jobs:
               }
             }
 
-            if (requiredOwners.size === 0) {
-              core.info('No owned paths changed; gate passes.');
-              return;
-            }
-
             const reviews = await github.paginate(
               github.rest.pulls.listReviews,
               { owner, repo, pull_number: number, per_page: 100 }
             );
 
-            // Latest state per reviewer wins.
+            // Latest state per reviewer wins for codeowner gate.
             const latest = new Map();
             for (const r of reviews) {
               const login = r.user?.login?.toLowerCase();
@@ -82,9 +92,11 @@ jobs:
             const authorLogin = pr.user?.login?.toLowerCase();
             const authorIsRequiredOwner = authorLogin && requiredOwners.has(authorLogin);
             const hasCodeownerApproval =
-              authorIsRequiredOwner || [...requiredOwners].some(o => approvedBy.has(o));
+              requiredOwners.size === 0 ||
+              authorIsRequiredOwner ||
+              [...requiredOwners].some(o => approvedBy.has(o));
 
-            core.info(`Required owners: ${[...requiredOwners].join(', ')}`);
+            core.info(`Required owners: ${[...requiredOwners].join(', ') || '(none)'}`);
             core.info(`Approved by: ${[...approvedBy].join(', ') || '(none)'}`);
             core.info(`PR author: ${authorLogin || '(unknown)'}`);
             if (authorIsRequiredOwner) {
@@ -95,4 +107,47 @@ jobs:
               core.setFailed(
                 `Missing codeowner approval. Required owner(s): ${[...requiredOwners].join(', ')}`
               );
+              return;
             }
+
+            // Docdrip policy gate: required only for non-doc PRs.
+            if (docOnlyPr) {
+              core.info('Doc-only PR detected; docdrip review gate not required.');
+              return;
+            }
+
+            // Require an APPROVED review comment that explicitly attributes docdrip
+            // and states documentation impact.
+            const docdripApprovedReviews = reviews.filter((r) => {
+              if (r.state !== 'APPROVED') return false;
+              const body = (r.body || '').toLowerCase();
+              return body.includes('ai employee: docdrip');
+            });
+
+            if (docdripApprovedReviews.length === 0) {
+              core.setFailed(
+                'Missing docdrip approval for non-doc PR. Add an APPROVED review containing `AI Employee: docdrip` and doc impact status.'
+              );
+              return;
+            }
+
+            const latestDocdrip = docdripApprovedReviews[docdripApprovedReviews.length - 1];
+            const docdripBody = (latestDocdrip.body || '').toLowerCase();
+            const saysUpdated = docdripBody.includes('doc impact: updated');
+            const saysNone = docdripBody.includes('doc impact: none');
+
+            if (!saysUpdated && !saysNone) {
+              core.setFailed(
+                'Docdrip approval must include `Doc Impact: updated` or `Doc Impact: none`.'
+              );
+              return;
+            }
+
+            if (saysUpdated && docsChanged.length === 0) {
+              core.setFailed(
+                'Docdrip marked `Doc Impact: updated`, but no documentation files were changed in this PR.'
+              );
+              return;
+            }
+
+            core.info('Docdrip review gate satisfied for non-doc PR.');
