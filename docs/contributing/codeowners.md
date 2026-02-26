@@ -19,9 +19,10 @@ This repository uses `.github/CODEOWNERS` to map major areas to owners.
 ## Enforcement
 
 - Workflow: `.github/workflows/codeowner-review-gate.yml`
-- Behavior: fails PR checks when owned paths change but no approval exists from a mapped code owner.
+- Codeowner behavior: fails PR checks when owned paths change but no approval exists from a mapped code owner.
+- Documentation behavior: for non-doc PRs, also fails PR checks unless docdrip review is completed with explicit documentation-impact status.
 
-This is a practical repo-level guardrail that works with standard branch protection requiring passing checks.
+This is a practical repo-level guardrail that works with standard branch protection requiring passing checks and preserves a clear audit trail in PR reviews.
 
 ## Ownership update process
 
