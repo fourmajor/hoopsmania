@@ -144,6 +144,17 @@ class DispatcherRoutingRetryTests(unittest.TestCase):
             module.HOOK_CMD = original_hook
             module.DEFAULT_HOOK_CMD = original_default
 
+    def test_is_human_owned_true_when_label_present(self) -> None:
+        labels = {"bug", "human-owned", "backend"}
+        self.assertTrue(module._is_human_owned(labels))
+
+    def test_issue_dispatch_decision_blocks_human_owned_even_on_opened(self) -> None:
+        self.assertFalse(module._issue_dispatch_decision("opened", False, True))
+        self.assertFalse(module._issue_dispatch_decision("edited", True, True))
+
+    def test_issue_dispatch_decision_allows_opened_when_not_human_owned(self) -> None:
+        self.assertTrue(module._issue_dispatch_decision("opened", False, False))
+
 
 if __name__ == "__main__":
     unittest.main()
