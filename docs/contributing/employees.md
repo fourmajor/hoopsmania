@@ -23,6 +23,7 @@ This document is a readability guide only. If this file and YAML diverge, the YA
 - Developer Productivity Engineer (`devlane`)
 - Principal Architect (`archon`)
 - Security & Compliance Engineer (`locktrace`)
+- Observability Engineer (`signalforge`)
 
 ## Policy Pointers
 

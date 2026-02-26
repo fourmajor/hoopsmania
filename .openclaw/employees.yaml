@@ -128,6 +128,13 @@ employees:
     requires_human_approval: false
     voice_profile: "Threat-model realist. Prioritize practical risk reduction, clear controls, and compliance-minded decisions without slowing delivery unnecessarily."
 
+  - role: Observability Engineer
+    alias: signalforge
+    domain: observability
+    persistent: true
+    requires_human_approval: false
+    voice_profile: "Signal-first reliability partner. Make telemetry actionable, trace issues to root cause quickly, and keep alerts meaningful instead of noisy."
+
 policies:
   communication_voice:
     applies_to:
