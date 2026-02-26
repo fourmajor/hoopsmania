@@ -43,16 +43,30 @@ Optional future OUs:
 
 ## 3) IAM / SSO Baseline + SCP Guardrails
 
-## IAM / SSO baseline
+## IAM / access baseline (solo-founder friendly)
 
-- Use **AWS IAM Identity Center** integrated with corporate IdP (Google Workspace/Okta/Azure AD).
+- Use **AWS IAM Identity Center** with its built-in identity store (no paid corporate IdP required).
+- Treat external IdP federation (Google Workspace/Okta/Azure AD) as **optional later**, not a prerequisite.
+- For a solo founder, start with 2 users in Identity Center:
+  - day-to-day user (least privilege)
+  - emergency break-glass admin user (hardware MFA + vault-stored recovery)
 - No long-lived IAM users in workload accounts (break-glass only in Management with strict controls).
-- Role sets (minimum):
-  - `Admin` (limited group)
+- Permission sets (minimum):
+  - `Admin` (limited use)
   - `PlatformEngineer`
   - `Developer`
   - `ReadOnly`
   - `BillingReadOnly` (Management only)
+- If Identity Center rollout must be delayed, temporary fallback is acceptable:
+  - one tightly-scoped IAM user in Management account only
+  - mandatory MFA + access key disabled by default
+  - migrate to Identity Center before production cutover.
+
+### Low-cost AWS-native access options (no corporate IdP)
+
+1. **Preferred now:** IAM Identity Center + built-in identity store (included with AWS Organizations)
+2. **Short-term bootstrap:** Management-account IAM user + MFA, then migrate to Identity Center
+3. **Do not conflate with workforce auth:** Amazon Cognito is for app/customer sign-in and should not replace admin/workforce account access controls
 
 ## SCP guardrails (minimum)
 
@@ -128,7 +142,7 @@ Isolation principle: **account boundary is the strongest default security and bl
 
 ### Phase 0 (Week 0-1): Foundation
 - Create AWS Organization + 4 baseline accounts
-- Enable IAM Identity Center and initial permission sets
+- Enable IAM Identity Center (built-in identity store) and initial permission sets
 - Turn on centralized CloudTrail/Config/GuardDuty/Security Hub
 - Apply baseline SCPs
 
